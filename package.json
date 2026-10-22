@@ -1,0 +1,12 @@
+{
+  "name": "addon-forge",
+  "private": true,
+  "version": "0.1.0",
+  "description": "World of Warcraft addon manager powered by CurseForge",
+  "scripts": {
+    "dev": "cargo tauri dev",
+    "build": "cargo tauri build",
+    "check": "cargo check --manifest-path src-tauri/Cargo.toml",
+    "test": "cargo test --manifest-path src-tauri/Cargo.toml"
+  }
+}

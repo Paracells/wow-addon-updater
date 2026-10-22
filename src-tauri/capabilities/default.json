@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Основные разрешения для главного окна Addon Forge",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

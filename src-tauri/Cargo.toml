@@ -1,0 +1,46 @@
+[package]
+name = "addon-forge"
+version = "0.1.0"
+edition = "2021"
+description = "World of Warcraft addon manager powered by CurseForge"
+license = "MIT"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyhow = "1"
+env_logger = "0.11"
+log = "0.4"
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
+    "gzip",
+    "brotli",
+    "deflate",
+    "json",
+    "stream",
+] }
+rfd = "0.15"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "time",
+    "sync",
+    "fs",
+    "macros",
+    "io-util",
+] }
+url = "2"
+zip = "2.4"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2

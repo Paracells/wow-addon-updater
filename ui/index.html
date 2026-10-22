@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Addon Forge — WoW Addon Updater</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark"><span>W</span></div>
+          <div class="brand-copy">
+            <h1>ADDON FORGE</h1>
+            <p>WOW ADDON UPDATER</p>
+          </div>
+        </div>
+
+        <div class="sidebar-rule"></div>
+        <div class="sidebar-label">Навигация</div>
+
+        <nav class="nav" aria-label="Основная навигация">
+          <button class="nav-item active" type="button" data-action="nav" data-page="installed">
+            <span class="nav-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="7" height="7" rx="1.4"></rect>
+                <rect x="14" y="4" width="7" height="7" rx="1.4"></rect>
+                <rect x="3" y="15" width="7" height="5" rx="1.4"></rect>
+                <rect x="14" y="15" width="7" height="5" rx="1.4"></rect>
+              </svg>
+            </span>
+            <span>Установленные</span>
+            <span class="nav-badge" id="nav-updates" hidden></span>
+          </button>
+
+          <button class="nav-item" type="button" data-action="nav" data-page="catalog">
+            <span class="nav-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9"></circle>
+                <path d="m15.5 8.5-2.2 4.8-4.8 2.2 2.2-4.8 4.8-2.2Z"></path>
+              </svg>
+            </span>
+            <span>Каталог CurseForge</span>
+          </button>
+
+          <button class="nav-item" type="button" data-action="nav" data-page="settings">
+            <span class="nav-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 7h16M4 12h16M4 17h16"></path>
+                <circle cx="9" cy="7" r="2" fill="var(--sidebar-bg, #0e0e12)"></circle>
+                <circle cx="15" cy="12" r="2" fill="var(--sidebar-bg, #0e0e12)"></circle>
+                <circle cx="8" cy="17" r="2" fill="var(--sidebar-bg, #0e0e12)"></circle>
+              </svg>
+            </span>
+            <span>Настройки</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-spacer"></div>
+
+        <button class="install-card" id="install-card" type="button" data-action="open-install-modal">
+          <span class="install-card-label">Установка</span>
+          <span class="install-card-main">Поиск игры…</span>
+          <span class="install-card-path">World of Warcraft</span>
+        </button>
+
+        <div class="sidebar-footer">
+          <span class="footer-dot"></span>
+          <span>CurseForge API</span>
+          <span class="footer-version">v0.1.0</span>
+        </div>
+      </aside>
+
+      <main class="main" id="main">
+        <header class="page-header" id="page-header"></header>
+        <div class="global-progress" id="global-progress"></div>
+        <div class="view" id="view"></div>
+      </main>
+    </div>
+
+    <div id="modal-root"></div>
+    <div class="toasts" id="toasts" aria-live="polite"></div>
+
+    <div class="boot-screen" id="boot-screen">
+      <div class="boot-runes"></div>
+      <div class="boot-emblem">W</div>
+      <div class="boot-title">ADDON FORGE</div>
+      <div class="boot-subtitle">WOW ADDON UPDATER</div>
+      <div class="boot-text" id="boot-text">Поиск World of Warcraft…</div>
+      <div class="boot-bar"><span></span></div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -1,7 +1,8 @@
 //! Persistent application settings.
 //!
-//! Settings live in `%APPDATA%\WowAddonUpdater\config.json`; downloaded
-//! archives, staging folders and backups live in `%LOCALAPPDATA%`.
+//! Regular builds keep settings in `%APPDATA%\WowAddonUpdater\config.json` and
+//! downloaded archives, staging folders and backups in `%LOCALAPPDATA%`.
+//! Portable builds keep all of them in a `data` folder next to the executable.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -48,7 +49,19 @@ impl Config {
     }
 }
 
+fn portable_data_dir() -> Option<PathBuf> {
+    if !cfg!(feature = "portable") {
+        return None;
+    }
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("data")))
+}
+
 pub fn config_dir() -> PathBuf {
+    if let Some(dir) = portable_data_dir() {
+        return dir;
+    }
     if let Some(appdata) = std::env::var_os("APPDATA") {
         PathBuf::from(appdata).join(APP_NAME)
     } else {
@@ -61,6 +74,9 @@ pub fn config_path() -> PathBuf {
 }
 
 pub fn data_dir() -> PathBuf {
+    if let Some(dir) = portable_data_dir() {
+        return dir;
+    }
     if let Some(local) = std::env::var_os("LOCALAPPDATA") {
         PathBuf::from(local).join(APP_NAME)
     } else {

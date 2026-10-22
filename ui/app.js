@@ -414,6 +414,15 @@
     </div>`;
   }
 
+  function addonCardLogo(addon) {
+    const tone = avatarTone(addon.primaryFolder || addon.title);
+    const logo = logoForAddon(addon);
+    return `<div class="card-logo-wrap" style="--tone:${tone}">
+      <span>${esc(initials(addon.title))}</span>
+      ${logo ? `<img src="${esc(logo)}" alt="" loading="lazy" />` : ""}
+    </div>`;
+  }
+
   function statusPill(status, extraTitle = "") {
     const pulse = status.pulsing ? " pulsing" : "";
     const title = extraTitle ? ` title="${esc(extraTitle)}"` : "";
@@ -1071,13 +1080,19 @@
       : "";
     const folders = addon.folders || [];
     const version = addon.displayVersion || addon.version || "—";
-    const folderNames = folders.slice(0, 2).join(" · ");
-    const extraFolders = folders.length > 2 ? ` +${folders.length - 2}` : "";
+    const summary =
+      String(addon.notes || "").replace(/\s+/g, " ").trim() || "Описание не опубликовано.";
+    const folderChips = folders
+      .slice(0, 3)
+      .map((folder) => `<span class="category-chip">${esc(folder)}</span>`)
+      .join("");
+    const moreFolders =
+      folders.length > 3 ? `<span class="category-chip">+${folders.length - 3}</span>` : "";
     return `<article class="addon-card installed-card" data-context-kind="installed" data-addon-key="${esc(addon.key)}" data-addon-title="${esc(addon.title)}">
       <div class="card-top">
-        ${addonAvatar(addon)}
+        ${addonCardLogo(addon)}
         <div class="card-title-wrap">
-          <div class="installed-card-title" title="${esc(addon.title)}">${esc(addon.title)}</div>
+          <button class="card-title" type="button" data-action="details-installed" data-key="${esc(addon.key)}" title="${esc(addon.title)}">${esc(addon.title)}</button>
           <div class="card-author">${esc(addon.author || "Автор не указан")}</div>
           <div class="card-badges">
             ${statusPill(status, status.error || "")}
@@ -1085,13 +1100,12 @@
           </div>
         </div>
       </div>
-      <div class="installed-card-meta">
-        <span>${icon("folder")} ${esc(folderNames || addon.primaryFolder || "")}${esc(extraFolders)}</span>
-        ${addon.interface ? `<span>${icon("monitor")} Interface ${esc(addon.interface)}</span>` : ""}
-      </div>
+      <p class="card-summary">${esc(summary)}</p>
+      ${folderChips || moreFolders ? `<div class="card-categories">${folderChips}${moreFolders}</div>` : ""}
       <div class="card-footer">
         <div class="card-stats">
-          ${status.updateAvailable && latest ? `<span>${icon("arrowUp")} Доступно: ${esc(latest)}</span>` : `<span>${folders.length} ${plural(folders.length, "папка", "папки", "папок")}</span>`}
+          ${status.updateAvailable && latest ? `<span>${icon("arrowUp")} Доступно: ${esc(latest)}</span>` : `<span>${icon("folder")} ${folders.length || 1} ${plural(folders.length || 1, "папка", "папки", "папок")}</span>`}
+          ${addon.interface ? `<span>${icon("monitor")} ${esc(addon.interface)}</span>` : ""}
         </div>
         <div class="card-actions">
           ${addonPrimaryAction(addon, status, task)}
@@ -2742,6 +2756,18 @@
         installCatalog(id, actionEl.dataset.title || remote?.name || "", remote?.latestFile || null);
         break;
       }
+      case "details-backdrop":
+        closeDetails();
+        break;
+      case "install-backdrop":
+        closeInstallModal();
+        break;
+      case "confirm-backdrop":
+        closeConfirm();
+        break;
+      case "lightbox-backdrop":
+        closeLightbox();
+        break;
       case "context-details": {
         const menu = state.contextMenu;
         if (!menu) break;

@@ -5,6 +5,11 @@ edition = "2021"
 description = "World of Warcraft addon manager powered by CurseForge"
 license = "MIT"
 
+[features]
+default = []
+# Store config, downloads, backups and manifests next to the executable.
+portable = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

@@ -67,6 +67,22 @@ cargo tauri build
 The executable and installers are written under
 `src-tauri/target/release/bundle/`.
 
+### Portable build
+
+```powershell
+npm run portable
+```
+
+This builds the app without an installer and creates:
+
+- `dist/AddonForge-portable/Addon Forge.exe` — run directly, no installation;
+- `dist/AddonForge-portable.zip` — the whole folder ready to unpack elsewhere.
+
+The portable build keeps its settings, manifest, downloads and backups in a `data`
+folder next to the executable. Move the whole folder when copying the app to another
+computer. WebView2 Runtime is still required (it is included with current Windows
+versions).
+
 ## Tests
 
 The reusable backend modules keep the original test suite:
@@ -119,7 +135,7 @@ local configuration file.
 
 ## Local storage
 
-The Tauri app uses the same paths as the original GPUI build, so existing settings
+Regular builds use the same paths as the original GPUI build, so existing settings
 and manifests continue to work:
 
 - Config: `%APPDATA%\WowAddonUpdater\config.json`
@@ -127,7 +143,9 @@ and manifests continue to work:
 - Backups: `%LOCALAPPDATA%\WowAddonUpdater\backups`
 - Downloads: `%LOCALAPPDATA%\WowAddonUpdater\downloads`
 
-All folders are available from **Настройки → Локальное хранилище**.
+The portable build stores the config, manifest, backups and downloads in `data`
+next to its executable. All folders are available from
+**Настройки → Локальное хранилище**.
 
 ## Branches
 

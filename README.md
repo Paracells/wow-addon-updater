@@ -105,8 +105,16 @@ folder when copying the app to another computer.
 
 `.github/workflows/windows.yml` runs on pushes to `main`, pull requests, manual
 dispatches, and `v*` tags. It installs the Rust and Node toolchains, runs the backend
-tests, builds MSI/NSIS installers plus the portable ZIP, uploads them as workflow
-artifacts, and publishes them to a GitHub Release for version tags.
+tests, builds the MSI installer, the NSIS setup, and the portable ZIP. A version tag
+publishes all three files as separate assets in **GitHub Releases**.
+
+To publish a new version, bump the version in `package.json`,
+`src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json`, then push a matching tag:
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
 
 ## Data and privacy
 

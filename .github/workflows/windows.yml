@@ -51,22 +51,26 @@ jobs:
       - name: Build portable archive
         run: npm run portable
 
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: addon-forge-windows-x64
-          if-no-files-found: error
-          path: |
-            src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/release/bundle/nsis/*.exe
-            dist/AddonForge-portable.zip
+      - name: Prepare release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          New-Item -ItemType Directory -Force release | Out-Null
+          Copy-Item "src-tauri/target/release/bundle/msi/*.msi" "release/Addon-Forge-$version-x64.msi"
+          Copy-Item "src-tauri/target/release/bundle/nsis/*.exe" "release/Addon-Forge-$version-x64-setup.exe"
+          Copy-Item "dist/AddonForge-portable.zip" "release/AddonForge-$version-portable.zip"
+          Get-ChildItem release | Select-Object Name,Length
 
-      - name: Publish tagged release
+      - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          name: Addon Forge ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
           generate_release_notes: true
+          fail_on_unmatched_files: true
           files: |
-            src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/release/bundle/nsis/*.exe
-            dist/AddonForge-portable.zip
+            release/*.msi
+            release/*-setup.exe
+            release/*.zip

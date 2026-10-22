@@ -4,8 +4,10 @@ A desktop World of Warcraft addon manager for Windows, built with **Rust + Tauri
 It discovers your WoW installation, reads the addons already in `Interface/AddOns`,
 checks them against CurseForge, and installs updates or new addons with one click.
 
-The interface is in Russian and uses a dark WoW-inspired theme. The frontend is
-plain HTML/CSS/JavaScript and is embedded in the Tauri binary — no Node runtime is
+The interface is in Russian and uses a dark WoW-inspired theme. It is typeset with
+locally bundled **Inter** and **JetBrains Mono** fonts, so the app looks the same
+offline and does not depend on installed system fonts. The frontend is plain
+HTML/CSS/JavaScript and is embedded in the Tauri binary - no Node runtime is
 required to use the app.
 
 ## Features
@@ -18,8 +20,9 @@ required to use the app.
   from `X-Curse-Project-ID`, CurseForge URLs, titles, folder names and slugs.
 - **Update checking** — picks the newest stable file for the local interface version,
   with a same-major/minor fallback when the exact patch is not published.
-- **Catalog search** — popular, recently updated and alphabetical sorting, paging,
-  installed badges, descriptions and screenshot galleries.
+- **Catalog search** - popular, recently updated and alphabetical sorting, paging,
+  installed badges, descriptions, full-screen screenshot carousel and a highlighted
+  list of supported game versions (your installed version is marked in gold).
 - **Safe install** — validates ZIP paths, rejects traversal entries, downloads to a
   local staging area, creates a backup of replaced folders, and only then swaps files
   into `Interface/AddOns`.
@@ -74,6 +77,7 @@ ui/                     static frontend (HTML, CSS, JS)
   index.html
   styles.css
   app.js
+  fonts/                bundled Inter / JetBrains Mono + OFL licenses
 src-tauri/
   src/
     main.rs             Tauri entry point

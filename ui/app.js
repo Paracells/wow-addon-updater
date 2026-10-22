@@ -84,6 +84,7 @@
     compass:
       '<circle cx="12" cy="12" r="9"></circle><path d="m15.5 8.5-2.2 4.8-4.8 2.2 2.2-4.8 4.8-2.2Z"></path>',
     arrowUp: '<path d="M12 19V5"></path><path d="m6 11 6-6 6 6"></path>',
+    arrowLeft: '<path d="M19 12H5"></path><path d="m10 17-5-5 5-5"></path>',
     arrowRight: '<path d="M5 12h14"></path><path d="m14 7 5 5-5 5"></path>',
     image:
       '<rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="8.5" cy="9" r="1.5"></circle><path d="m21 15-5-5L5 20"></path>',
@@ -174,6 +175,67 @@
     return [...list].sort(
       (a, b) => String(b.url || b.thumb || "").length - String(a.url || a.thumb || "").length,
     )[0];
+  }
+
+  function gameVersionParts(value) {
+    return String(value || "")
+      .split(".")
+      .map((part) => Number.parseInt(part, 10) || 0);
+  }
+
+  function compareGameVersions(a, b) {
+    const left = gameVersionParts(a);
+    const right = gameVersionParts(b);
+    const length = Math.max(left.length, right.length);
+    for (let index = 0; index < length; index += 1) {
+      const diff = (left[index] || 0) - (right[index] || 0);
+      if (diff) return diff;
+    }
+    return 0;
+  }
+
+  function sameGameVersion(a, b) {
+    const left = String(a || "").trim().toLowerCase();
+    const right = String(b || "").trim().toLowerCase();
+    return Boolean(left && right && left === right);
+  }
+
+  function orderedGameVersions(versions, currentVersion) {
+    const seen = new Set();
+    const list = [];
+    for (const value of versions || []) {
+      const version = String(value || "").trim();
+      const key = version.toLowerCase();
+      if (!version || seen.has(key)) continue;
+      seen.add(key);
+      list.push(version);
+    }
+    list.sort((a, b) => {
+      const currentA = sameGameVersion(a, currentVersion);
+      const currentB = sameGameVersion(b, currentVersion);
+      if (currentA !== currentB) return currentA ? -1 : 1;
+      return compareGameVersions(b, a);
+    });
+    if (currentVersion && !list.some((version) => sameGameVersion(version, currentVersion))) {
+      list.unshift(currentVersion);
+    }
+    return list;
+  }
+
+  function galleryItems() {
+    const screenshots = state.details?.data?.remote?.screenshots || [];
+    return screenshots
+      .map((shot, index) => {
+        const full = safeUrl(shot.url) || safeUrl(shot.thumb);
+        const thumb = safeUrl(shot.thumb) || full;
+        if (!full) return null;
+        return {
+          full,
+          thumb,
+          title: String(shot.title || "").trim() || `Скриншот ${index + 1}`,
+        };
+      })
+      .filter(Boolean);
   }
 
   function formatDate(value) {
@@ -615,6 +677,11 @@
 
     const detailsBody = modalRoot.querySelector(".details-body");
     if (detailsBody) detailsBody.scrollTop = state.detailsScroll || 0;
+
+    const activeLightboxThumb = modalRoot.querySelector(".lightbox-thumb.active");
+    if (activeLightboxThumb) {
+      activeLightboxThumb.scrollIntoView({ block: "nearest", inline: "center" });
+    }
 
     if (focusId) {
       const element = document.getElementById(focusId);
@@ -1210,7 +1277,7 @@
           <button class="btn btn-secondary btn-sm" type="button" data-action="save-api-key">${icon("check")} Сохранить</button>
         </div>
         ${keyHint}
-        <div class="hint"><button class="btn btn-ghost btn-sm" style="height:auto;padding:0;margin-top:2px;font-size:8.5px;color:var(--gold)" type="button" data-action="open-url" data-url="https://console.curseforge.com/">Открыть CurseForge Console ${icon("external")}</button></div>
+        <div class="hint"><button class="btn btn-ghost btn-sm" style="height:auto;padding:0;margin-top:2px;font-size:11.5px;color:var(--gold)" type="button" data-action="open-url" data-url="https://console.curseforge.com/">Открыть CurseForge Console ${icon("external")}</button></div>
       </section>
 
       <section class="settings-card">
@@ -1337,16 +1404,54 @@
           : "Аддон уже установлен. Можно переустановить последнюю версию поверх текущей."
         : `Файл ${esc(file.fileName || file.displayName || "")} будет распакован в AddOns.`;
 
-    const gameVersions = (file?.gameVersions || []).slice(0, 8);
+    const localVersion = String(state.install?.version || "").trim();
+    const supportedVersions = [...(data.supportedGameVersions || [])];
+    if (!supportedVersions.length) {
+      for (const remoteFile of data.files || []) {
+        supportedVersions.push(...(remoteFile.gameVersions || []));
+      }
+    }
+    const supportedVersionKeys = new Set(
+      supportedVersions.map((version) => String(version || "").trim().toLowerCase()).filter(Boolean),
+    );
+    const gameVersions = orderedGameVersions(supportedVersions, localVersion);
+    const currentVersionAvailable =
+      !localVersion ||
+      gameVersions.some(
+        (version) =>
+          sameGameVersion(version, localVersion) && supportedVersionKeys.has(version.toLowerCase()),
+      );
+    const gameVersionChips = gameVersions
+      .map((version) => {
+        const isCurrent = sameGameVersion(version, localVersion);
+        const isSupported = supportedVersionKeys.has(String(version).toLowerCase());
+        const classes = ["game-version-chip", isSupported ? "supported" : "missing"];
+        if (isCurrent) classes.push("current");
+        const marker = isSupported ? icon("check") : icon("info");
+        const tag = isCurrent
+          ? `<span class="version-tag">${isSupported ? "ваша" : "нет файла"}</span>`
+          : "";
+        const title = isCurrent
+          ? isSupported
+            ? "Ваша версия игры поддерживается"
+            : "Для вашей версии игры нет подходящего файла"
+          : "Для этой версии игры доступен файл";
+        return `<span class="${classes.join(" ")}" title="${esc(title)}">${marker}${esc(version)}${tag}</span>`;
+      })
+      .join("");
     const categories = categoryNames(remote, 6);
-    const screenshotThumbs = screenshots
+    const gallery = galleryItems();
+    const screenshotThumbs = gallery
       .slice(0, 6)
       .map((shot, index) => {
-        const full = safeUrl(shot.url) || safeUrl(shot.thumb);
-        const thumb = safeUrl(shot.thumb) || full;
-        const active = heroUrl && full === heroUrl;
-        return `<button class="shot-thumb ${active ? "active" : ""}" type="button" data-action="details-shot" data-url="${esc(full)}" title="${esc(shot.title || `Скриншот ${index + 1}`)}">
-          <img src="${esc(thumb)}" alt="" loading="lazy" />
+        const active = heroUrl && shot.full === heroUrl;
+        const more =
+          gallery.length > 6 && index === 5
+            ? `<span class="shot-more">+${gallery.length - 6}</span>`
+            : "";
+        return `<button class="shot-thumb ${active ? "active" : ""}" type="button" data-action="details-shot" data-index="${index}" title="${esc(shot.title)}" aria-label="Открыть галерею: ${esc(shot.title)}">
+          <img src="${esc(shot.thumb)}" alt="" loading="lazy" />
+          ${more}
         </button>`;
       })
       .join("");
@@ -1396,7 +1501,12 @@
 
               ${gameVersions.length ? `<div class="side-block">
                 <div class="side-block-title">Версии игры</div>
-                <div class="side-chips">${gameVersions.map((version) => `<span class="category-chip">${esc(version)}</span>`).join("")}</div>
+                <div class="game-version-list">${gameVersionChips}</div>
+                <div class="game-version-note">${localVersion
+                  ? currentVersionAvailable
+                    ? "Ваша версия выделена золотым."
+                    : "Для вашей версии игры файла нет."
+                  : "Версия игры не определена."}</div>
               </div>` : ""}
 
               ${categories.length ? `<div class="side-block">
@@ -1405,9 +1515,9 @@
               </div>` : ""}
 
               ${screenshotThumbs ? `<div class="side-block">
-                <div class="side-block-title">Скриншоты</div>
+                <div class="side-block-title">Скриншоты <span class="side-block-count">${gallery.length}</span></div>
                 <div class="screenshot-grid">${screenshotThumbs}</div>
-                ${heroUrl ? `<button class="hero-shot-link" type="button" data-action="open-lightbox" data-url="${esc(heroUrl)}">${icon("image")} Открыть скриншот</button>` : ""}
+                <div class="screenshot-hint">${icon("image")} Нажмите, чтобы открыть галерею</div>
               </div>` : ""}
 
               ${external ? `<button class="btn btn-secondary btn-sm" type="button" data-action="open-url" data-url="${esc(external)}">${icon("external")} Страница на CurseForge</button>` : ""}
@@ -1503,9 +1613,40 @@
 
   function renderLightbox() {
     if (!state.lightbox) return "";
-    return `<div class="lightbox" data-action="lightbox-backdrop">
-      <img src="${esc(state.lightbox)}" alt="Скриншот аддона" />
-      <button class="lightbox-close" type="button" data-action="close-lightbox" aria-label="Закрыть">${icon("close")}</button>
+    const items = galleryItems();
+    if (!items.length) return "";
+    const index = Math.min(Math.max(Number(state.lightbox.index) || 0, 0), items.length - 1);
+    const current = items[index];
+    const multiple = items.length > 1;
+    const thumbnails = items
+      .map(
+        (shot, shotIndex) =>
+          `<button class="lightbox-thumb ${shotIndex === index ? "active" : ""}" type="button" data-action="lightbox-select" data-index="${shotIndex}" aria-label="Скриншот ${shotIndex + 1}" aria-current="${shotIndex === index ? "true" : "false"}">
+            <img src="${esc(shot.thumb)}" alt="" loading="lazy" />
+          </button>`,
+      )
+      .join("");
+
+    return `<div class="lightbox" data-action="lightbox-backdrop" role="dialog" aria-modal="true" aria-label="Галерея скриншотов">
+      <div class="lightbox-card">
+        <div class="lightbox-head">
+          <div>
+            <div class="lightbox-kicker">Галерея аддона</div>
+            <div class="lightbox-counter">${index + 1} из ${items.length}</div>
+          </div>
+          <button class="lightbox-close" type="button" data-action="close-lightbox" aria-label="Закрыть галерею">${icon("close")}</button>
+        </div>
+        <div class="lightbox-stage">
+          ${multiple ? `<button class="lightbox-nav prev" type="button" data-action="lightbox-prev" aria-label="Предыдущий скриншот">${icon("arrowLeft")}</button>` : ""}
+          <img src="${esc(current.full)}" alt="${esc(current.title)}" />
+          ${multiple ? `<button class="lightbox-nav next" type="button" data-action="lightbox-next" aria-label="Следующий скриншот">${icon("arrowRight")}</button>` : ""}
+        </div>
+        <div class="lightbox-caption">
+          <span>${esc(current.title)}</span>
+          <span class="lightbox-hint">← → для навигации · Esc для закрытия</span>
+        </div>
+        ${multiple ? `<div class="lightbox-thumbs">${thumbnails}</div>` : ""}
+      </div>
     </div>`;
   }
 
@@ -1877,26 +2018,37 @@
     state.detailsToken += 1;
     state.details = null;
     state.detailsScroll = 0;
+    state.lightbox = null;
     render();
   }
 
-  function setActiveShot(url) {
-    const safe = safeUrl(url);
-    if (!safe || !state.details) return;
-    state.details.activeShot = safe;
-    const hero = document.querySelector(".details-hero-bg");
-    if (hero) hero.style.backgroundImage = `url("${safe.replace(/"/g, "%22")}")`;
-    document.querySelectorAll(".shot-thumb[data-url]").forEach((thumb) => {
-      thumb.classList.toggle("active", safeUrl(thumb.dataset.url) === safe);
-    });
-    const link = document.querySelector('[data-action="open-lightbox"]');
-    if (link) link.dataset.url = safe;
+  function openLightbox(index) {
+    const items = galleryItems();
+    if (!items.length || !state.details) return;
+    const nextIndex = Math.min(Math.max(Number(index) || 0, 0), items.length - 1);
+    state.lightbox = { index: nextIndex };
+    state.details.activeShot = items[nextIndex].full;
+    render();
   }
 
-  function openLightbox(url) {
-    const safe = safeUrl(url);
-    if (!safe) return;
-    state.lightbox = safe;
+  function moveLightbox(delta) {
+    if (!state.lightbox) return;
+    const items = galleryItems();
+    if (!items.length) return;
+    const current = Math.min(Math.max(Number(state.lightbox.index) || 0, 0), items.length - 1);
+    const nextIndex = (current + delta + items.length) % items.length;
+    state.lightbox = { index: nextIndex };
+    if (state.details) state.details.activeShot = items[nextIndex].full;
+    render();
+  }
+
+  function selectLightbox(index) {
+    if (!state.lightbox) return;
+    const items = galleryItems();
+    const nextIndex = Number(index);
+    if (!items.length || !Number.isFinite(nextIndex)) return;
+    state.lightbox = { index: Math.min(Math.max(nextIndex, 0), items.length - 1) };
+    if (state.details) state.details.activeShot = items[state.lightbox.index].full;
     render();
   }
 
@@ -2157,10 +2309,16 @@
         installFromDetails();
         break;
       case "details-shot":
-        setActiveShot(actionEl.dataset.url);
+        openLightbox(Number(actionEl.dataset.index));
         break;
-      case "open-lightbox":
-        openLightbox(actionEl.dataset.url);
+      case "lightbox-prev":
+        moveLightbox(-1);
+        break;
+      case "lightbox-next":
+        moveLightbox(1);
+        break;
+      case "lightbox-select":
+        selectLightbox(Number(actionEl.dataset.index));
         break;
       case "close-lightbox":
         closeLightbox();
@@ -2280,6 +2438,12 @@
         closeInstallModal();
         event.preventDefault();
       }
+      return;
+    }
+
+    if (state.lightbox && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      event.preventDefault();
+      moveLightbox(event.key === "ArrowLeft" ? -1 : 1);
       return;
     }
 

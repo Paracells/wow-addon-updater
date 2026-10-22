@@ -138,6 +138,8 @@ pub struct AddonDetails {
     pub description: String,
     pub latest: Option<RemoteFile>,
     pub files: Vec<RemoteFile>,
+    /// Game versions supported by the current release files.
+    pub supported_game_versions: Vec<String>,
 }
 
 /// Update state of an installed addon.

@@ -281,6 +281,7 @@ impl CurseForge {
             _ => cf_mod.latest_files.clone(),
         };
 
+        let supported_game_versions = collect_supported_game_versions(&cf_mod, &files);
         let remote_files: Vec<RemoteFile> = files.iter().map(remote_file_from_cf).collect();
         let latest = pick_latest_file(&remote_files, &self.game_version);
         let mut remote = remote_from_cf(cf_mod, &self.game_version);
@@ -291,6 +292,7 @@ impl CurseForge {
             description: html_to_text(&description),
             latest,
             files: remote_files.into_iter().take(20).collect(),
+            supported_game_versions,
         })
     }
 
@@ -594,6 +596,39 @@ fn remote_file_from_cf(file: &CfFile) -> RemoteFile {
     }
 }
 
+/// Current WoW versions covered by the project's latest release files.
+///
+/// `latest_files` contains one or more recent files and their `gameVersions`
+/// arrays. A single file is often published for several branches at once
+/// (Retail, Classic, Classic Era, Forever), so the union is what we show in
+/// the details panel.
+fn collect_supported_game_versions(cf_mod: &CfMod, files: &[CfFile]) -> Vec<String> {
+    let source = if cf_mod.latest_files.is_empty() {
+        files
+    } else {
+        &cf_mod.latest_files
+    };
+    let mut versions: Vec<String> = source
+        .iter()
+        .flat_map(|file| file.game_versions.iter().cloned())
+        .filter(|version| !version.trim().is_empty())
+        .collect();
+    versions.sort_by(|a, b| {
+        version_sort_key(b)
+            .cmp(&version_sort_key(a))
+            .then_with(|| b.cmp(a))
+    });
+    versions.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+    versions
+}
+
+fn version_sort_key(version: &str) -> Vec<u64> {
+    version
+        .split('.')
+        .map(|part| part.trim().parse().unwrap_or(0))
+        .collect()
+}
+
 fn remote_from_cf(cf_mod: CfMod, game_version: &str) -> RemoteAddon {
     let mut files: Vec<RemoteFile> = cf_mod.latest_files.iter().map(remote_file_from_cf).collect();
     if files.is_empty() {
@@ -895,6 +930,40 @@ mod tests {
         assert!(versions_equivalent("1.2", "1.2.0"));
         assert!(!versions_equivalent("1.2.3", "1.2.4"));
         assert!(!versions_equivalent("", "1.0"));
+    }
+
+    #[test]
+    fn collects_current_game_versions() {
+        let mod_data = CfMod {
+            latest_files: vec![
+                CfFile {
+                    game_versions: vec![
+                        "1.60.1".to_string(),
+                        "12.1.5".to_string(),
+                        "12.1.0".to_string(),
+                    ],
+                    ..Default::default()
+                },
+                CfFile {
+                    game_versions: vec!["1.60.1".to_string(), "3.80.2".to_string()],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        assert_eq!(
+            collect_supported_game_versions(&mod_data, &[]),
+            vec!["12.1.5", "12.1.0", "3.80.2", "1.60.1"]
+        );
+
+        let fallback = vec![CfFile {
+            game_versions: vec!["1.15.9".to_string()],
+            ..Default::default()
+        }];
+        assert_eq!(
+            collect_supported_game_versions(&CfMod::default(), &fallback),
+            vec!["1.15.9"]
+        );
     }
 
     #[test]

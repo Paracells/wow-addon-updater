@@ -1003,146 +1003,6 @@ select:focus-visible {
   gap: 11px;
 }
 
-.addon-row {
-  display: grid;
-  grid-template-columns: 46px minmax(0, 1fr) 152px 204px;
-  gap: 14px;
-  align-items: center;
-  padding: 13px 15px;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.026), rgba(255, 255, 255, 0.011));
-  border: 1px solid var(--border);
-  border-radius: 11px;
-  transition: background 150ms ease, border-color 150ms ease;
-}
-
-.addon-row:hover {
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.042), rgba(255, 255, 255, 0.016));
-  border-color: rgba(216, 180, 106, 0.18);
-}
-
-.addon-avatar {
-  position: relative;
-  display: grid;
-  width: 46px;
-  height: 46px;
-  overflow: hidden;
-  place-items: center;
-  font-family: var(--font-display);
-  font-size: 19px;
-  color: #f0e2bf;
-  background: linear-gradient(145deg, #3a3123, #211d17);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 10px;
-}
-
-.addon-avatar::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  border: 1px solid rgba(255, 255, 255, 0.055);
-  border-radius: inherit;
-}
-
-.addon-avatar img {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.addon-avatar .avatar-fallback {
-  position: relative;
-  z-index: 0;
-}
-
-.avatar-tone-1 {
-  color: #d7e8de;
-  background: linear-gradient(145deg, #26463a, #17251f);
-}
-
-.avatar-tone-2 {
-  color: #e4d6f2;
-  background: linear-gradient(145deg, #3e2d4c, #241b2b);
-}
-
-.avatar-tone-3 {
-  color: #f1ddc8;
-  background: linear-gradient(145deg, #4a3528, #291e17);
-}
-
-.avatar-tone-4 {
-  color: #d4e4f2;
-  background: linear-gradient(145deg, #293e50, #17242e);
-}
-
-.avatar-tone-5 {
-  color: #f3d6d6;
-  background: linear-gradient(145deg, #4b2d31, #2a191c);
-}
-
-.addon-main {
-  min-width: 0;
-}
-
-.addon-title-line {
-  display: flex;
-  gap: 9px;
-  align-items: center;
-  min-width: 0;
-}
-
-.addon-title {
-  overflow: hidden;
-  font-size: 15px;
-  font-weight: 650;
-  color: var(--text);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.addon-meta {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-top: 3px;
-  overflow: hidden;
-  font-size: 11.5px;
-  color: var(--dim);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.addon-meta .meta-dot {
-  width: 2px;
-  height: 2px;
-  background: var(--dim);
-  border-radius: 50%;
-}
-
-.folder-chips {
-  display: flex;
-  gap: 4px;
-  margin-top: 5px;
-  overflow: hidden;
-}
-
-.folder-chip {
-  max-width: 145px;
-  padding: 1px 5px;
-  overflow: hidden;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: #858074;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  background: rgba(255, 255, 255, 0.035);
-  border: 1px solid rgba(255, 255, 255, 0.045);
-  border-radius: 4px;
-}
-
 .status-pill {
   display: inline-flex;
   flex: 0 0 auto;
@@ -1214,55 +1074,6 @@ select:focus-visible {
     opacity: 1;
     transform: scale(1.25);
   }
-}
-
-.version-cell {
-  min-width: 0;
-  text-align: right;
-}
-
-.version-current {
-  overflow: hidden;
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  color: var(--muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.version-next {
-  display: flex;
-  gap: 3px;
-  align-items: center;
-  justify-content: flex-end;
-  margin-top: 3px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--gold);
-}
-
-.version-next svg {
-  width: 10px;
-  height: 10px;
-}
-
-.version-unknown {
-  color: var(--dim);
-}
-
-.row-actions {
-  display: flex;
-  gap: 5px;
-  justify-content: flex-end;
-}
-
-.row-actions .btn {
-  height: 33px;
-  font-size: 11.5px;
-}
-
-.row-actions .btn-icon {
-  width: 33px;
 }
 
 /* ------------------------------------------------------------------- empty */
@@ -3455,10 +3266,6 @@ select:focus-visible {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .addon-row {
-    grid-template-columns: 46px minmax(0, 1fr) 140px 196px;
-  }
-
   .catalog-row {
     grid-template-columns: 52px minmax(0, 1fr) 150px 240px;
   }
@@ -3490,14 +3297,6 @@ select:focus-visible {
   }
 
   .toolbar-note {
-    display: none;
-  }
-
-  .addon-row {
-    grid-template-columns: 46px minmax(0, 1fr) 180px;
-  }
-
-  .version-cell {
     display: none;
   }
 

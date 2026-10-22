@@ -405,15 +405,6 @@
     return safeUrl(state.logoByMod.get(modId) || "");
   }
 
-  function addonAvatar(addon) {
-    const tone = avatarTone(addon.primaryFolder || addon.title);
-    const logo = logoForAddon(addon);
-    return `<div class="addon-avatar avatar-tone-${tone}">
-      <span class="avatar-fallback">${esc(initials(addon.title))}</span>
-      ${logo ? `<img src="${esc(logo)}" alt="" loading="lazy" />` : ""}
-    </div>`;
-  }
-
   function addonCardLogo(addon) {
     const tone = avatarTone(addon.primaryFolder || addon.title);
     const logo = logoForAddon(addon);
@@ -1122,47 +1113,52 @@
       ? fileVersionLabel(status.modName || addon.title, status.latest)
       : "";
     const folders = addon.folders || [];
+    const version = addon.displayVersion || addon.version || "—";
+    const summary =
+      String(addon.notes || "").replace(/\s+/g, " ").trim() || "Описание не опубликовано.";
     const folderChips = folders
-      .slice(0, 2)
-      .map((folder) => `<span class="folder-chip">${esc(folder)}</span>`)
+      .slice(0, 3)
+      .map((folder) => `<span class="category-chip">${esc(folder)}</span>`)
       .join("");
-    const moreFolders = folders.length > 2 ? `<span class="folder-chip">+${folders.length - 2}</span>` : "";
-    const meta = [
-      addon.author ? esc(addon.author) : "Автор не указан",
-      `${folders.length || 1} ${plural(folders.length || 1, "папка", "папки", "папок")}`,
-      addon.interface ? `Interface ${addon.interface}` : "",
-    ].filter(Boolean);
+    const moreFolders =
+      folders.length > 3 ? `<span class="category-chip">+${folders.length - 3}</span>` : "";
+    const upToDate = status.status === "upToDate" && !task;
 
     let primaryAction = "";
+    let detailsButton = "";
     if (task) {
-      primaryAction = `<button class="btn btn-secondary btn-sm" type="button" disabled>${icon("refresh", "spin")} В процессе</button>`;
+      primaryAction = `<button class="btn btn-secondary" type="button" disabled>${icon("refresh", "spin")} В работе</button>`;
     } else if (status.updateAvailable) {
-      primaryAction = `<button class="btn btn-primary btn-sm" type="button" data-action="update-addon" data-key="${esc(addon.key)}">${icon("download")} Обновить</button>`;
+      primaryAction = `<button class="btn btn-primary" type="button" data-action="update-addon" data-key="${esc(addon.key)}">${icon("download")} Обновить</button>`;
     } else if (["unknown", "error", "unresolved", "noCompatible"].includes(status.status)) {
-      primaryAction = `<button class="btn btn-secondary btn-sm" type="button" data-action="check-addon" data-key="${esc(addon.key)}">${icon("refresh")} Проверить</button>`;
+      primaryAction = `<button class="btn btn-secondary" type="button" data-action="check-addon" data-key="${esc(addon.key)}">${icon("refresh")} Проверить</button>`;
+    } else {
+      primaryAction = `<button class="btn btn-secondary" type="button" data-action="details-installed" data-key="${esc(addon.key)}">${icon("info")} Подробнее</button>`;
+    }
+    if (!upToDate) {
+      detailsButton = `<button class="btn btn-ghost btn-icon" type="button" data-action="details-installed" data-key="${esc(addon.key)}" title="Подробнее об аддоне">${icon("info")}</button>`;
     }
 
-    return `<div class="addon-row" data-context-kind="installed" data-addon-key="${esc(addon.key)}" data-addon-title="${esc(addon.title)}">
-      ${addonAvatar(addon)}
-      <div class="addon-main">
-        <div class="addon-title-line">
-          <span class="addon-title" title="${esc(addon.title)}">${esc(addon.title)}</span>
+    return `<article class="catalog-row installed-row" data-context-kind="installed" data-addon-key="${esc(addon.key)}" data-addon-title="${esc(addon.title)}">
+      ${addonCardLogo(addon)}
+      <div class="catalog-row-main">
+        <div class="catalog-row-title-line">
+          <button class="card-title" type="button" data-action="details-installed" data-key="${esc(addon.key)}" title="${esc(addon.title)}">${esc(addon.title)}</button>
           ${statusPill(status, status.error || "")}
+          ${version ? `<span class="card-version" title="Установленная версия">${esc(version)}</span>` : ""}
         </div>
-        <div class="addon-meta">
-          ${meta.map((item) => `<span>${item}</span>`).join('<span class="meta-dot"></span>')}
-        </div>
-        ${folderChips || moreFolders ? `<div class="folder-chips">${folderChips}${moreFolders}</div>` : ""}
+        <div class="card-author">${esc(addon.author || "Автор не указан")}</div>
+        <p class="catalog-row-summary">${esc(summary)}</p>
+        ${folderChips || moreFolders ? `<div class="card-categories catalog-row-categories">${folderChips}${moreFolders}</div>` : ""}
       </div>
-      <div class="version-cell">
-        <div class="version-current" title="Установленная версия">${esc(addon.displayVersion || addon.version || "—")}</div>
-        ${status.updateAvailable && latest ? `<div class="version-next">${icon("arrowUp")} ${esc(latest)}</div>` : `<div class="version-next version-unknown">${status.status === "upToDate" ? "актуально" : status.status === "checking" || task ? "проверка…" : ""}</div>`}
+      <div class="catalog-row-meta">
+        <span class="card-stats">
+          ${status.updateAvailable && latest ? `<span>${icon("arrowUp")} Доступно: ${esc(latest)}</span>` : `<span>${icon("folder")} ${folders.length || 1} ${plural(folders.length || 1, "папка", "папки", "папок")}</span>`}
+          ${addon.interface ? `<span>${icon("monitor")} Interface ${esc(addon.interface)}</span>` : ""}
+        </span>
       </div>
-      <div class="row-actions">
-        ${primaryAction}
-        <button class="btn btn-ghost btn-sm" type="button" data-action="details-installed" data-key="${esc(addon.key)}" title="Подробнее об аддоне">${icon("info")} Детали</button>
-      </div>
-    </div>`;
+      <div class="card-actions">${detailsButton}${primaryAction}</div>
+    </article>`;
   }
 
   function renderNoInstall() {

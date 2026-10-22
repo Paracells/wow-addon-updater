@@ -19,9 +19,9 @@
         </div>
 
         <div class="sidebar-rule"></div>
-        <div class="sidebar-label">Навигация</div>
+        <div class="sidebar-label" data-i18n="nav.section">Навигация</div>
 
-        <nav class="nav" aria-label="Основная навигация">
+        <nav class="nav" aria-label="Основная навигация" data-i18n-aria-label="nav.aria">
           <button class="nav-item active" type="button" data-action="nav" data-page="installed">
             <span class="nav-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
@@ -31,7 +31,7 @@
                 <rect x="14" y="15" width="7" height="5" rx="1.4"></rect>
               </svg>
             </span>
-            <span>Установленные</span>
+            <span data-i18n="nav.installed">Установленные</span>
             <span class="nav-badge" id="nav-updates" hidden></span>
           </button>
 
@@ -42,7 +42,7 @@
                 <path d="m15.5 8.5-2.2 4.8-4.8 2.2 2.2-4.8 4.8-2.2Z"></path>
               </svg>
             </span>
-            <span>Каталог CurseForge</span>
+            <span data-i18n="nav.catalog">Каталог CurseForge</span>
           </button>
 
           <button class="nav-item" type="button" data-action="nav" data-page="settings">
@@ -54,17 +54,25 @@
                 <circle cx="8" cy="17" r="2" fill="var(--sidebar-bg, #0e0e12)"></circle>
               </svg>
             </span>
-            <span>Настройки</span>
+            <span data-i18n="nav.settings">Настройки</span>
           </button>
         </nav>
 
         <div class="sidebar-spacer"></div>
 
         <button class="install-card" id="install-card" type="button" data-action="open-install-modal">
-          <span class="install-card-label">Установка</span>
-          <span class="install-card-main">Поиск игры…</span>
+          <span class="install-card-label" data-i18n="install.label">Установка</span>
+          <span class="install-card-main" data-i18n="install.searching">Поиск игры…</span>
           <span class="install-card-path">World of Warcraft</span>
         </button>
+
+        <div class="language-switch" role="group" aria-label="Язык интерфейса" data-i18n-aria-label="language.aria">
+          <span class="language-label" data-i18n="language.label">Язык</span>
+          <div class="language-options">
+            <button class="language-option" type="button" data-action="set-language" data-language="ru" aria-pressed="false">RU</button>
+            <button class="language-option" type="button" data-action="set-language" data-language="en" aria-pressed="false">EN</button>
+          </div>
+        </div>
 
         <div class="sidebar-footer">
           <span class="footer-dot"></span>
@@ -90,10 +98,11 @@
       <div class="boot-emblem">W</div>
       <div class="boot-title">ADDON FORGE</div>
       <div class="boot-subtitle">WOW ADDON UPDATER</div>
-      <div class="boot-text" id="boot-text">Поиск World of Warcraft…</div>
+      <div class="boot-text" id="boot-text" data-i18n="boot.searching">Поиск World of Warcraft…</div>
       <div class="boot-bar"><span></span></div>
     </div>
 
+    <script src="i18n.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

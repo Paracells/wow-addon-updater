@@ -22,6 +22,8 @@ pub struct Config {
     pub use_official_api: bool,
     pub auto_check_updates: bool,
     pub keep_backups: bool,
+    /// Interface language: `ru`, `en`, or `auto` to follow the system locale.
+    pub language: String,
 }
 
 impl Default for Config {
@@ -32,6 +34,7 @@ impl Default for Config {
             use_official_api: false,
             auto_check_updates: true,
             keep_backups: true,
+            language: "auto".to_string(),
         }
     }
 }

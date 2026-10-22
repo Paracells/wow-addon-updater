@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import {
   copyFileSync,
   existsSync,
@@ -16,7 +16,31 @@ const outputDir = resolve(root, "dist/AddonForge-portable");
 const outputExe = resolve(outputDir, "Addon Forge.exe");
 const zipPath = resolve(root, "dist/AddonForge-portable.zip");
 
-const portableReadme = `Addon Forge - портативная версия
+const portableReadme = `Addon Forge - portable version
+================================
+
+Getting started
+---------------
+1. Extract the whole AddonForge-portable folder.
+2. Run "Addon Forge.exe".
+
+No installation is required. Windows SmartScreen may show a warning because the
+executable is unsigned; choose "More info" -> "Run anyway".
+
+Data
+----
+Settings, the installation manifest, downloads, and backups are stored in the
+data folder next to the executable. Move the whole folder to move the app.
+
+Requirements
+------------
+Windows 10/11 and Microsoft Edge WebView2 Runtime. WebView2 is already included
+in current Windows versions. If the app does not start, install the WebView2
+Runtime from Microsoft.
+
+---
+
+Addon Forge - портативная версия
 ================================
 
 Запуск
@@ -48,17 +72,28 @@ function formatSize(bytes) {
 }
 
 console.log("Building portable Addon Forge (no installer)...");
-execFileSync(
-  process.platform === "win32" ? "cargo.exe" : "cargo",
-  ["tauri", "build", "--no-bundle", "--features", "portable"],
-  {
+const localTauri = resolve(
+  root,
+  "node_modules",
+  ".bin",
+  process.platform === "win32" ? "tauri.cmd" : "tauri",
+);
+const useLocalTauri = existsSync(localTauri);
+if (useLocalTauri) {
+  execSync(`"${localTauri}" build --no-bundle --features portable`, {
     cwd: root,
     stdio: "inherit",
-  },
-);
+  });
+} else {
+  execFileSync(
+    process.platform === "win32" ? "cargo.exe" : "cargo",
+    ["tauri", "build", "--no-bundle", "--features", "portable"],
+    { cwd: root, stdio: "inherit" },
+  );
+}
 
 if (!existsSync(sourceExe)) {
-  throw new Error(`Не найден собранный файл: ${sourceExe}`);
+  throw new Error(`Built executable not found: ${sourceExe}`);
 }
 
 rmSync(outputDir, { recursive: true, force: true });

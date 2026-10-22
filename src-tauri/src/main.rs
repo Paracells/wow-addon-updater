@@ -22,6 +22,7 @@ fn main() {
             commands::add_install_path,
             commands::refresh_installed,
             commands::save_settings,
+            commands::set_language,
             commands::pick_wow_folder,
             commands::open_storage,
             commands::open_external,
@@ -36,5 +37,5 @@ fn main() {
             commands::update_addons,
         ])
         .run(tauri::generate_context!())
-        .expect("не удалось запустить Addon Forge");
+        .expect("failed to launch Addon Forge");
 }

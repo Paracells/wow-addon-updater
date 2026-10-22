@@ -4,15 +4,7 @@
 /dist
 node_modules
 *.log
-app-stdout.log
-app-stderr.log
-
-# Local UI-test artifacts
-*.ps1
-window*.png
-crop*.png
-desktop.png
-screenshot.png
-final-installed.png
-banner.png
-Paracells
+.env
+.env.*
+.DS_Store
+Thumbs.db

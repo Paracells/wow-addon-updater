@@ -59,6 +59,7 @@ pub struct SettingsView {
     pub use_official_api: bool,
     pub auto_check_updates: bool,
     pub keep_backups: bool,
+    pub language: String,
 }
 
 impl From<&Config> for SettingsView {
@@ -69,6 +70,7 @@ impl From<&Config> for SettingsView {
             use_official_api: config.use_official_api,
             auto_check_updates: config.auto_check_updates,
             keep_backups: config.keep_backups,
+            language: config.language.clone(),
         }
     }
 }
@@ -572,14 +574,41 @@ pub async fn save_settings(
 }
 
 #[tauri::command]
-pub async fn pick_wow_folder() -> Result<Option<String>, String> {
-    let path = tauri::async_runtime::spawn_blocking(|| {
-        rfd::FileDialog::new()
-            .set_title("Выберите папку World of Warcraft")
-            .pick_folder()
+pub fn set_language(state: State<'_, AppState>, language: String) -> Result<(), String> {
+    let language = match language.as_str() {
+        "ru" | "en" => language,
+        _ => "auto".to_string(),
+    };
+    let mut config = state.config.lock().unwrap();
+    if config.language == language {
+        return Ok(());
+    }
+    config.language = language;
+    config::save(&config).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn pick_wow_folder(
+    state: State<'_, AppState>,
+    language: Option<String>,
+) -> Result<Option<String>, String> {
+    let language = language
+        .filter(|value| value == "ru" || value == "en")
+        .or_else(|| {
+            let configured = state.config.lock().unwrap().language.clone();
+            (configured == "ru" || configured == "en").then_some(configured)
+        })
+        .unwrap_or_else(|| "en".to_string());
+    let title = if language == "ru" {
+        "Выберите папку World of Warcraft"
+    } else {
+        "Select the World of Warcraft folder"
+    };
+    let path = tauri::async_runtime::spawn_blocking(move || {
+        rfd::FileDialog::new().set_title(title).pick_folder()
     })
     .await
-    .map_err(|error| format!("Не удалось открыть выбор папки: {error}"))?;
+    .map_err(|error| format!("Could not open the folder picker: {error}"))?;
     Ok(path.map(|path| path.display().to_string()))
 }
 

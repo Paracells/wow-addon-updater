@@ -4,6 +4,13 @@
   const tauri = window.__TAURI__;
   const invoke = tauri?.core?.invoke;
   const listen = tauri?.event?.listen;
+  const i18n = window.AddonForgeI18n;
+  const t = i18n?.t || ((ru, _en) => ru);
+  const tn = i18n?.tn || ((count, ruForms) => ruForms[0].replace(/\{count\}/g, String(count)));
+  const localeTag = i18n?.localeTag || (() => "ru-RU");
+  const getLocale = i18n?.getLocale || (() => "ru");
+  const setLocale = i18n?.setLocale || (() => "ru");
+  const setInitialLanguage = i18n?.setInitialLanguage || (() => "ru");
   const $ = (id) => document.getElementById(id);
 
   const state = {
@@ -16,6 +23,7 @@
       useOfficialApi: false,
       autoCheckUpdates: true,
       keepBackups: true,
+      language: "auto",
     },
     settingsDraft: {
       wowPath: null,
@@ -23,6 +31,7 @@
       useOfficialApi: false,
       autoCheckUpdates: true,
       keepBackups: true,
+      language: "auto",
     },
     installs: [],
     selectedInstall: null,
@@ -158,15 +167,6 @@
     return (hash % 5) + 1;
   }
 
-  function plural(number, one, few, many) {
-    const n = Math.abs(Number(number) || 0);
-    const mod10 = n % 10;
-    const mod100 = n % 100;
-    if (mod10 === 1 && mod100 !== 11) return one;
-    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few;
-    return many;
-  }
-
   function friendlyVersion(title, version) {
     let value = String(version || "").trim();
     if (value.toLowerCase().endsWith(".zip")) value = value.slice(0, -4);
@@ -251,7 +251,9 @@
         return {
           full,
           thumb,
-          title: String(shot.title || "").trim() || `Скриншот ${index + 1}`,
+          title:
+            String(shot.title || "").trim() ||
+            t("Скриншот {number}", "Screenshot {number}", { number: index + 1 }),
         };
       })
       .filter(Boolean);
@@ -262,7 +264,7 @@
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "—";
     try {
-      return new Intl.DateTimeFormat("ru-RU", {
+      return new Intl.DateTimeFormat(localeTag(), {
         day: "2-digit",
         month: "short",
         year: "numeric",
@@ -276,7 +278,10 @@
     const date = value ? new Date(value) : new Date();
     if (Number.isNaN(date.getTime())) return "";
     try {
-      return new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" }).format(date);
+      return new Intl.DateTimeFormat(localeTag(), {
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(date);
     } catch (_) {
       return "";
     }
@@ -286,7 +291,7 @@
     const n = Number(value || 0);
     if (!n) return "0";
     try {
-      return new Intl.NumberFormat("ru-RU", {
+      return new Intl.NumberFormat(localeTag(), {
         notation: "compact",
         maximumFractionDigits: 1,
       }).format(n);
@@ -298,7 +303,7 @@
   function formatBytes(value) {
     let n = Number(value || 0);
     if (!n) return "—";
-    const units = ["Б", "КБ", "МБ", "ГБ"];
+    const units = t("Б|КБ|МБ|ГБ", "B|KB|MB|GB").split("|");
     let index = 0;
     while (n >= 1024 && index < units.length - 1) {
       n /= 1024;
@@ -308,17 +313,17 @@
   }
 
   function releaseLabel(type) {
-    if (Number(type) === 1) return "Релиз";
-    if (Number(type) === 2) return "Бета";
-    if (Number(type) === 3) return "Альфа";
-    return "Файл";
+    if (Number(type) === 1) return t("Релиз", "Release");
+    if (Number(type) === 2) return t("Бета", "Beta");
+    if (Number(type) === 3) return t("Альфа", "Alpha");
+    return t("Файл", "File");
   }
 
   function authorLine(remote) {
     const authors = Array.isArray(remote?.authors)
       ? remote.authors.map(namedValue).filter(Boolean)
       : [];
-    return authors.length ? authors.join(", ") : "Автор не указан";
+    return authors.length ? authors.join(", ") : t("Автор не указан", "Unknown author");
   }
 
   function namedValue(value) {
@@ -341,14 +346,138 @@
     return "";
   }
 
+  const BACKEND_ERROR_REPLACEMENTS = [
+    [
+      /Сначала выберите установку World of Warcraft в настройках\./g,
+      "Select a World of Warcraft installation in Settings first.",
+    ],
+    [/Установка не найдена\. Обновите список\./g, "Installation not found. Refresh the list."],
+    [/Выбранная папка не существует\./g, "The selected folder does not exist."],
+    [
+      /В этой папке не найдена World of Warcraft\. Выберите папку игры или папку с _retail_ \/ _classic_ \/ _forever_\./g,
+      "World of Warcraft was not found in this folder. Select the game folder or a folder containing _retail_ / _classic_ / _forever_.",
+    ],
+    [/Неизвестный раздел хранилища\./g, "Unknown storage section."],
+    [/Можно открывать только http\/https ссылки\./g, "Only http/https links can be opened."],
+    [
+      /Аддон не найден\. Обновите список установленных\./g,
+      "Addon not found. Refresh the installed list.",
+    ],
+    [/Этот аддон не найден на CurseForge\./g, "This addon was not found on CurseForge."],
+    [
+      /Установка уже выполняется\. Дождитесь её окончания\./g,
+      "An installation is already in progress. Wait for it to finish.",
+    ],
+    [/Не указан проект CurseForge\./g, "No CurseForge project was specified."],
+    [/Аддон больше не найден в папке AddOns/g, "The addon is no longer present in the AddOns folder"],
+    [/Папки аддона не найдены в AddOns\./g, "The addon folders were not found in AddOns."],
+    [/Папка аддона является символической ссылкой/g, "The addon folder is a symbolic link"],
+    [/Некорректное имя папки аддона/g, "Invalid addon folder name"],
+    [/некорректное имя папки аддона/g, "invalid addon folder name"],
+    [
+      /для официального API нужен ключ CurseForge\. Укажите его в настройках или переключитесь на прокси без ключа\./g,
+      "The official API requires a CurseForge key. Add it in Settings or switch to the keyless proxy.",
+    ],
+    [/CurseForge вернул ошибку /g, "CurseForge returned error "],
+    [/у проекта нет файла для версии игры /g, "the project has no file for game version "],
+    [/\(неизвестна\)/g, "(unknown)"],
+    [/сервер вернул HTTP /g, "the server returned HTTP "],
+    [/не удалось начать загрузку/g, "could not start the download"],
+    [/не удалось подключиться к CurseForge/g, "could not connect to CurseForge"],
+    [/не удалось разобрать ответ CurseForge/g, "could not parse the CurseForge response"],
+    [/не удалось выполнить удаление/g, "could not remove the addon"],
+    [/Не удалось выполнить удаление/g, "Could not remove the addon"],
+    [/Не удалось прочитать папку AddOns/g, "Could not read the AddOns folder"],
+    [/Не удалось просканировать диск/g, "Could not scan the disk"],
+    [/Не удалось проверить папку/g, "Could not inspect the folder"],
+    [/Не удалось открыть выбор папки/g, "Could not open the folder picker"],
+    [/Задача установки завершилась с ошибкой/g, "The installation task failed"],
+    [/не удалось сохранить настройки/g, "could not save settings"],
+    [/Не удалось сохранить настройки/g, "Could not save settings"],
+    [/не удалось создать/g, "could not create"],
+    [/Не удалось создать/g, "Could not create"],
+    [/не удалось сохранить/g, "could not save"],
+    [/Не удалось сохранить/g, "Could not save"],
+    [/не удалось записать/g, "could not write"],
+    [/Не удалось записать/g, "Could not write"],
+    [/не удалось прочитать файл #(\d+) архива/g, "could not read archive file #$1"],
+    [/не удалось прочитать файл/g, "could not read the file"],
+    [/не удалось прочитать/g, "could not read"],
+    [/Не удалось прочитать/g, "Could not read"],
+    [/не удалось открыть/g, "could not open"],
+    [/Не удалось открыть/g, "Could not open"],
+    [/не удалось удалить устаревшую папку/g, "could not remove the outdated folder"],
+    [/не удалось удалить/g, "could not remove"],
+    [/Не удалось удалить/g, "Could not remove"],
+    [/не удалось установить/g, "could not install"],
+    [/Не удалось установить/g, "Could not install"],
+    [/не удалось распаковать/g, "could not extract"],
+    [/не удалось скопировать/g, "could not copy"],
+    [/не удалось проверить/g, "could not inspect"],
+    [/не удалось скачать файл/g, "could not download the file"],
+    [/не удалось скачать/g, "could not download"],
+    [/не удалось запустить/g, "could not start"],
+    [/Скачивание архива\.\.\./g, "Downloading archive…"],
+    [/в архиве не найдена папка аддона с \.toc файлом/g, "no addon folder with a .toc file was found in the archive"],
+    [/архив содержит небезопасный путь/g, "the archive contains an unsafe path"],
+    [/архив содержит символическую ссылку/g, "the archive contains a symbolic link"],
+    [/небезопасный путь в архиве/g, "unsafe path in the archive"],
+    [/некорректное имя файла/g, "invalid file name"],
+    [/зарезервированное имя файла/g, "reserved file name"],
+    [/пустой путь в архиве/g, "empty path in the archive"],
+    [/конфликт при распаковке/g, "extraction conflict"],
+    [/не найден на CurseForge/g, "not found on CurseForge"],
+    [/Получение информации о версии\.\.\./g, "Fetching version information…"],
+    [/Скачивание\.\.\./g, "Downloading…"],
+    [/Распаковка и установка\.\.\./g, "Extracting and installing…"],
+    [/Проект #/g, "Project #"],
+    [/ошибок:/g, "errors:"],
+  ];
+
+  function localizeBackendMessage(message) {
+    let text = String(message ?? "");
+    if (getLocale() !== "en" || !text) return text;
+    for (const [pattern, replacement] of BACKEND_ERROR_REPLACEMENTS) {
+      text = text.replace(pattern, replacement);
+    }
+    return text;
+  }
+
   function errorText(error) {
-    if (error == null) return "Неизвестная ошибка";
-    if (typeof error === "string") return error;
-    if (typeof error === "object" && error.message) return String(error.message);
+    if (error == null) return t("Неизвестная ошибка", "Unknown error");
+    if (typeof error === "string") return localizeBackendMessage(error);
+    if (typeof error === "object" && error.message) {
+      return localizeBackendMessage(error.message);
+    }
     try {
-      return JSON.stringify(error);
+      return localizeBackendMessage(JSON.stringify(error));
     } catch (_) {
-      return String(error);
+      return localizeBackendMessage(error);
+    }
+  }
+
+  function statusLabel(status, fallback = "") {
+    switch (status) {
+      case "upToDate":
+        return t("Актуально", "Up to date");
+      case "updateAvailable":
+        return t("Есть обновление", "Update available");
+      case "unresolved":
+        return t("Не найден на CurseForge", "Not found on CurseForge");
+      case "noCompatible":
+        return t("Нет версии для игры", "No compatible game version");
+      case "error":
+        return t("Ошибка", "Error");
+      case "checking":
+        return t("Проверка…", "Checking…");
+      case "installing":
+        return t("Установка…", "Installing…");
+      case "updating":
+        return t("Обновление…", "Updating…");
+      case "unknown":
+        return t("Не проверен", "Not checked");
+      default:
+        return localizeBackendMessage(fallback) || t("Не проверен", "Not checked");
     }
   }
 
@@ -358,7 +487,9 @@
       return {
         addonKey: addon.key,
         status: "installing",
-        statusLabel: task.isUpdate ? "Обновление…" : "Установка…",
+        statusLabel: task.isUpdate
+          ? t("Обновление…", "Updating…")
+          : t("Установка…", "Installing…"),
         tone: "info",
         updateAvailable: false,
         pulsing: true,
@@ -369,12 +500,16 @@
       return {
         addonKey: addon.key,
         status: "unknown",
-        statusLabel: "Не проверен",
+        statusLabel: t("Не проверен", "Not checked"),
         tone: "neutral",
         updateAvailable: false,
       };
     }
-    return check;
+    return {
+      ...check,
+      statusLabel: statusLabel(check.status, check.statusLabel),
+      error: check.error ? localizeBackendMessage(check.error) : check.error,
+    };
   }
 
   function taskFor(key) {
@@ -390,7 +525,7 @@
       state.checks.set(key, {
         ...check,
         status: "unknown",
-        statusLabel: "Не проверен",
+        statusLabel: t("Не проверен", "Not checked"),
         tone: "neutral",
         updateAvailable: false,
         pulsing: false,
@@ -417,7 +552,7 @@
   function statusPill(status, extraTitle = "") {
     const pulse = status.pulsing ? " pulsing" : "";
     const title = extraTitle ? ` title="${esc(extraTitle)}"` : "";
-    return `<span class="status-pill ${esc(status.tone || "neutral")}${pulse}"${title}><span class="status-dot"></span>${esc(status.statusLabel || "Не проверен")}</span>`;
+    return `<span class="status-pill ${esc(status.tone || "neutral")}${pulse}"${title}><span class="status-dot"></span>${esc(status.statusLabel || t("Не проверен", "Not checked"))}</span>`;
   }
 
   function installedForRemote(remote) {
@@ -483,7 +618,7 @@
           }
         });
       } catch (error) {
-        console.error(`Не удалось подписаться на ${name}`, error);
+        console.error(`Failed to subscribe to ${name}`, error);
       }
     }
   }
@@ -497,7 +632,7 @@
       ...(previous || {}),
       addonKey: payload.addonKey,
       status: "checking",
-      statusLabel: "Проверка…",
+      statusLabel: t("Проверка…", "Checking…"),
       tone: "info",
       updateAvailable: false,
       pulsing: true,
@@ -523,10 +658,10 @@
     if (!payload?.key) return;
     state.installTasks.set(payload.key, {
       key: payload.key,
-      title: payload.title || "Аддон",
+      title: payload.title || t("Аддон", "Addon"),
       isUpdate: Boolean(payload.isUpdate),
       stage: "resolve",
-      message: "Подготовка…",
+      message: "",
       downloaded: 0,
       total: 0,
     });
@@ -539,7 +674,7 @@
     if (!task) {
       task = {
         key: payload.key,
-        title: payload.title || "Аддон",
+        title: payload.title || t("Аддон", "Addon"),
         isUpdate: false,
         stage: payload.stage || "download",
         message: payload.message || "",
@@ -563,7 +698,7 @@
         ...(previous || {}),
         addonKey: payload.key,
         status: "upToDate",
-        statusLabel: "Актуально",
+        statusLabel: t("Актуально", "Up to date"),
         tone: "success",
         updateAvailable: false,
         error: null,
@@ -587,9 +722,10 @@
   }
 
   async function loadBootstrap() {
-    setBootText("Поиск установок World of Warcraft…");
+    setBootText(t("Поиск установок World of Warcraft…", "Searching for World of Warcraft installations…"));
     try {
       const data = await invoke("bootstrap");
+      setInitialLanguage(data.settings?.language);
       applyBootstrap(data);
       hideBoot();
       if (data.settings?.autoCheckUpdates && data.addons?.length) {
@@ -598,7 +734,7 @@
     } catch (error) {
       hideBoot();
       state.ready = true;
-      state.fatal = errorText(error);
+      state.fatal = error;
       render();
     }
   }
@@ -732,15 +868,15 @@
     if (state.install) {
       chip.classList.remove("no-install");
       chip.innerHTML = `
-        <span class="install-card-label">Установка</span>
+        <span class="install-card-label">${t("Установка", "Installation")}</span>
         <span class="install-card-main">${esc(state.install.flavorLabel || state.install.displayName)}<span style="color: var(--dim); font-weight: 500;"> · ${esc(state.install.version || "—")}</span></span>
         <span class="install-card-path">${esc(state.install.flavorDir || state.install.root || "")}</span>`;
     } else {
       chip.classList.add("no-install");
       chip.innerHTML = `
-        <span class="install-card-label">Установка</span>
-        <span class="install-card-main">Игра не найдена</span>
-        <span class="install-card-path">Нажмите, чтобы указать папку</span>`;
+        <span class="install-card-label">${t("Установка", "Installation")}</span>
+        <span class="install-card-main">${t("Игра не найдена", "Game not found")}</span>
+        <span class="install-card-path">${t("Нажмите, чтобы указать папку", "Click to choose a folder")}</span>`;
     }
   }
 
@@ -751,22 +887,22 @@
     const busy = state.checking || state.installTasks.size > 0 || state.batchActive;
     if (state.page === "installed") {
       const subtitle = state.install
-        ? `${state.install.displayName} · ${state.install.version || "версия неизвестна"}${state.install.interface ? ` · Interface ${state.install.interface}` : ""}`
-        : "World of Warcraft не обнаружен";
+        ? `${state.install.displayName} · ${state.install.version || t("версия неизвестна", "version unknown")}${state.install.interface ? ` · Interface ${state.install.interface}` : ""}`
+        : t("World of Warcraft не обнаружен", "World of Warcraft not detected");
       header.innerHTML = `
         <div class="page-title">
-          <div class="eyebrow"><span class="eyebrow-line"></span>Библиотека</div>
-          <h1>Установленные аддоны</h1>
+          <div class="eyebrow"><span class="eyebrow-line"></span>${t("Библиотека", "Library")}</div>
+          <h1>${t("Установленные аддоны", "Installed addons")}</h1>
           <p>${esc(subtitle)}</p>
         </div>
         <div class="header-actions">
           <button class="btn btn-secondary" type="button" data-action="check-updates" ${!state.install || !state.addons.length || busy ? "disabled" : ""}>
             ${icon("refresh", state.checking ? "spin" : "")}
-            ${state.checking ? "Проверка…" : "Проверить обновления"}
+            ${state.checking ? t("Проверка…", "Checking…") : t("Проверить обновления", "Check for updates")}
           </button>
           <button class="btn btn-primary" type="button" data-action="update-all" ${!counts.updates || busy ? "disabled" : ""}>
             ${icon("download")}
-            Обновить всё${counts.updates ? ` · ${counts.updates}` : ""}
+            ${t("Обновить всё", "Update all")}${counts.updates ? ` · ${counts.updates}` : ""}
           </button>
         </div>`;
       return;
@@ -775,25 +911,25 @@
       header.innerHTML = `
         <div class="page-title">
           <div class="eyebrow"><span class="eyebrow-line"></span>CurseForge</div>
-          <h1>Каталог аддонов</h1>
-          <p>${state.install ? `Подбор файлов для ${esc(state.install.version || state.install.flavorLabel)}` : "Выберите установку игры, чтобы фильтровать версии"}</p>
+          <h1>${t("Каталог аддонов", "Addon catalog")}</h1>
+          <p>${state.install ? t("Подбор файлов для {version}", "Matching files for {version}", { version: esc(state.install.version || state.install.flavorLabel) }) : t("Выберите установку игры, чтобы фильтровать версии", "Select a game installation to filter versions")}</p>
         </div>
         <div class="header-actions">
           <button class="btn btn-secondary" type="button" data-action="catalog-refresh" ${state.catalog.loading ? "disabled" : ""}>
-            ${icon("refresh", state.catalog.loading ? "spin" : "")} Обновить каталог
+            ${icon("refresh", state.catalog.loading ? "spin" : "")} ${t("Обновить каталог", "Refresh catalog")}
           </button>
         </div>`;
       return;
     }
     header.innerHTML = `
       <div class="page-title">
-        <div class="eyebrow"><span class="eyebrow-line"></span>Приложение</div>
-        <h1>Настройки</h1>
-        <p>Подключение, обновления и локальное хранилище</p>
+        <div class="eyebrow"><span class="eyebrow-line"></span>${t("Приложение", "Application")}</div>
+        <h1>${t("Настройки", "Settings")}</h1>
+        <p>${t("Подключение, обновления и локальное хранилище", "Connection, updates, and local storage")}</p>
       </div>
       <div class="header-actions">
         <button class="btn btn-secondary" type="button" data-action="open-storage" data-kind="data">
-          ${icon("folder")} Папка данных
+          ${icon("folder")} ${t("Папка данных", "Data folder")}
         </button>
       </div>`;
   }
@@ -801,13 +937,36 @@
   function renderFatal() {
     return `<div class="empty-hero">
       <div class="empty-emblem">${icon("shield")}</div>
-      <div class="eyebrow">Ошибка запуска</div>
-      <h2>Не удалось загрузить приложение</h2>
-      <p>${esc(state.fatal)}</p>
+      <div class="eyebrow">${t("Ошибка запуска", "Startup error")}</div>
+      <h2>${t("Не удалось загрузить приложение", "Could not load the application")}</h2>
+      <p>${esc(errorText(state.fatal))}</p>
       <div class="empty-actions">
-        <button class="btn btn-primary" type="button" data-action="retry-bootstrap">${icon("refresh")} Повторить</button>
+        <button class="btn btn-primary" type="button" data-action="retry-bootstrap">${icon("refresh")} ${t("Повторить", "Retry")}</button>
       </div>
     </div>`;
+  }
+
+  function installTaskMessage(task) {
+    if (task.stage === "resolve") {
+      return t("Получение информации о версии…", "Fetching version information…");
+    }
+    if (task.stage === "download") {
+      const total = Number(task.total || 0);
+      if (total > 0) {
+        const percent = Math.max(
+          0,
+          Math.min(100, Math.round((Number(task.downloaded || 0) * 100) / total)),
+        );
+        return t("Скачивание… {percent}%", "Downloading… {percent}%", { percent });
+      }
+      return t("Скачивание…", "Downloading…");
+    }
+    if (task.stage === "install") {
+      return t("Распаковка и установка…", "Extracting and installing…");
+    }
+    return task.message
+      ? localizeBackendMessage(task.message)
+      : t("Подготовка…", "Preparing…");
   }
 
   function renderInstallTasks() {
@@ -825,7 +984,7 @@
           <div class="task-body">
             <div class="task-head">
               <span class="task-title">${esc(task.title)}</span>
-              <span class="task-message">${esc(task.message || "Подготовка…")}</span>
+              <span class="task-message">${esc(installTaskMessage(task))}</span>
             </div>
             <div class="task-bar${indeterminate ? " indeterminate" : ""}"><span style="width:${indeterminate ? 35 : percent}%"></span></div>
           </div>
@@ -843,7 +1002,7 @@
       const bar = card.querySelector(".task-bar");
       const fill = card.querySelector(".task-bar span");
       const percent = card.querySelector(".task-percent");
-      if (message) message.textContent = task.message || "Подготовка…";
+      if (message) message.textContent = installTaskMessage(task);
       const known = Number(task.total) > 0;
       const indeterminate = task.stage !== "download" || !known;
       const value = known
@@ -877,7 +1036,7 @@
             <div class="toast-title">${esc(item.title)}</div>
             ${item.message ? `<div class="toast-message">${esc(item.message).replace(/\n/g, "<br>")}</div>` : ""}
           </div>
-          <button class="toast-close" type="button" data-action="close-toast" data-toast-id="${item.id}" aria-label="Закрыть">${icon("close")}</button>
+          <button class="toast-close" type="button" data-action="close-toast" data-toast-id="${item.id}" aria-label="${t("Закрыть", "Close")}">${icon("close")}</button>
         </div>`,
       )
       .join("");
@@ -910,9 +1069,9 @@
     const mode = state.viewModes[view];
     const button = (value, iconName, label) =>
       `<button type="button" data-action="set-view-mode" data-view="${view}" data-mode="${value}" class="${mode === value ? "active" : ""}" title="${label}" aria-label="${label}" aria-pressed="${mode === value}">${icon(iconName)}</button>`;
-    return `<div class="segmented view-toggle" role="group" aria-label="Вид списка">
-      ${button("list", "list", "Показать списком")}
-      ${button("grid", "grid", "Показать сеткой")}
+    return `<div class="segmented view-toggle" role="group" aria-label="${t("Вид списка", "List view")}">
+      ${button("list", "list", t("Показать списком", "Show as list"))}
+      ${button("grid", "grid", t("Показать сеткой", "Show as grid"))}
     </div>`;
   }
 
@@ -930,59 +1089,66 @@
   function renderInstalledPage() {
     if (!state.install) return renderNoInstall();
     const counts = computeCounts();
+    const folderTotal = state.addons.reduce(
+      (sum, addon) => sum + (addon.folders?.length || 1),
+      0,
+    );
     const stats = `<div class="stats-grid">
       <div class="stat-card">
-        <div class="stat-label">Всего установлено</div>
+        <div class="stat-label">${t("Всего установлено", "Installed")}</div>
         <div class="stat-value">${counts.total}</div>
-        <div class="stat-note">${state.addons.reduce((sum, addon) => sum + (addon.folders?.length || 1), 0)} ${plural(state.addons.reduce((sum, addon) => sum + (addon.folders?.length || 1), 0), "папка", "папки", "папок")} в AddOns</div>
+        <div class="stat-note">${tn(folderTotal, ["{count} папка в AddOns", "{count} папки в AddOns", "{count} папок в AddOns"], ["{count} folder in AddOns", "{count} folders in AddOns"])}</div>
       </div>
       <div class="stat-card tone-warning">
-        <div class="stat-label">Доступно обновлений</div>
+        <div class="stat-label">${t("Доступно обновлений", "Updates available")}</div>
         <div class="stat-value">${counts.updates}</div>
-        <div class="stat-note">${counts.updates ? "готовы к установке" : "всё актуально"}</div>
+        <div class="stat-note">${counts.updates ? t("готовы к установке", "ready to install") : t("всё актуально", "everything is up to date")}</div>
       </div>
       <div class="stat-card tone-success">
-        <div class="stat-label">Актуальны</div>
+        <div class="stat-label">${t("Актуальны", "Up to date")}</div>
         <div class="stat-value">${counts.upToDate}</div>
-        <div class="stat-note">последние версии</div>
+        <div class="stat-note">${t("последние версии", "latest versions")}</div>
       </div>
       <div class="stat-card ${counts.attention ? "tone-danger" : ""}">
-        <div class="stat-label">Требуют внимания</div>
+        <div class="stat-label">${t("Требуют внимания", "Needs attention")}</div>
         <div class="stat-value">${counts.attention}</div>
-        <div class="stat-note">CurseForge или версия игры</div>
+        <div class="stat-note">${t("CurseForge или версия игры", "CurseForge or game version")}</div>
       </div>
     </div>`;
 
     if (!state.addons.length) {
       return `${stats}<div class="empty-state">
         <div class="empty-emblem">${icon("gamepad")}</div>
-        <h2>В AddOns пока нет аддонов</h2>
-        <p>Папка AddOns найдена, но аддонов в ней нет. Откройте каталог CurseForge и установите первый аддон — файлы будут распакованы автоматически.</p>
+        <h2>${t("В AddOns пока нет аддонов", "There are no addons in AddOns yet")}</h2>
+        <p>${t("Папка AddOns найдена, но аддонов в ней нет. Откройте каталог CurseForge и установите первый аддон — файлы будут распакованы автоматически.", "The AddOns folder was found, but it contains no addons. Open the CurseForge catalog and install your first addon — the files will be extracted automatically.")}</p>
         <div class="empty-actions">
-          <button class="btn btn-primary" type="button" data-action="nav" data-page="catalog">${icon("compass")} Открыть каталог</button>
-          <button class="btn btn-secondary" type="button" data-action="refresh-addons">${icon("refresh")} Обновить список</button>
+          <button class="btn btn-primary" type="button" data-action="nav" data-page="catalog">${icon("compass")} ${t("Открыть каталог", "Open catalog")}</button>
+          <button class="btn btn-secondary" type="button" data-action="refresh-addons">${icon("refresh")} ${t("Обновить список", "Refresh list")}</button>
         </div>
       </div>`;
     }
 
     const filtered = filteredAddons();
     const note = state.checking
-      ? `${state.checkProgress?.current || 0} из ${state.checkProgress?.total || state.addons.length}`
+      ? t("{current} of {total}", "{current} of {total}", {
+          current: state.checkProgress?.current || 0,
+          total: state.checkProgress?.total || state.addons.length,
+        })
       : state.lastCheck
-        ? `Проверено в ${formatTime(state.lastCheck.at)}`
-        : "Проверка ещё не выполнялась";
+        ? t("Проверено в {time}", "Checked at {time}", { time: formatTime(state.lastCheck.at) })
+        : t("Проверка ещё не выполнялась", "Updates have not been checked yet");
 
     return `${stats}
       ${state.checking ? renderCheckCard() : ""}
       <div class="installed-toolbar">
         <div class="search-box">
           ${icon("search")}
-          <input id="installed-search" data-input="installed-search" type="text" value="${esc(state.installedQuery)}" placeholder="Поиск среди установленных аддонов…" autocomplete="off" spellcheck="false" />
+          <input id="installed-search" data-input="installed-search" type="text" value="${esc(state.installedQuery)}" placeholder="${t("Поиск среди установленных аддонов…", "Search installed addons…")}" autocomplete="off" spellcheck="false" />
         </div>
         <div class="segmented">
-          <button type="button" data-action="filter-installed" data-filter="all" class="${state.installedFilter === "all" ? "active" : ""}">Все</button>
-          <button type="button" data-action="filter-installed" data-filter="updates" class="${state.installedFilter === "updates" ? "active" : ""}">Обновления${counts.updates ? ` · ${counts.updates}` : ""}</button>
-          <button type="button" data-action="filter-installed" data-filter="attention" class="${state.installedFilter === "attention" ? "active" : ""}">Проблемы${counts.attention ? ` · ${counts.attention}` : ""}</button>
+          <button type="button" data-action="filter-installed" data-filter="all" class="${state.installedFilter === "all" ? "active" : ""}">${t("Все", "All")}</button>
+          <button type="button" data-action="filter-installed" data-filter="updates" class="${state.installedFilter === "updates" ? "active" : ""}">${t("Обновления", "Updates")}${counts.updates ? ` · ${counts.updates}` : ""}</button>
+          <button type="button" data-action="filter-installed" data-filter="attention" class="${state.installedFilter === "attention" ? "active" : ""}">${t("Проблемы", "Issues")}${counts.attention ? ` · ${counts.attention}` : ""}</button>
         </div>
         ${viewToggle("installed")}
         <div class="toolbar-note">${esc(note)}</div>
@@ -1003,8 +1169,8 @@
     return `<div class="check-card">
       <span class="check-spinner"></span>
       <div class="check-copy">
-        <div class="check-title">Проверка обновлений CurseForge</div>
-        <div class="check-sub">${current && total ? `${current} из ${total} · ${esc(state.checkProgress?.title || "")}` : "Подготовка к проверке…"}</div>
+        <div class="check-title">${t("Проверка обновлений CurseForge", "Checking CurseForge updates")}</div>
+        <div class="check-sub">${current && total ? t("{current} of {total} · {title}", "{current} of {total} · {title}", { current, total, title: esc(state.checkProgress?.title || "") }) : t("Подготовка к проверке…", "Preparing to check…")}</div>
       </div>
       <div class="check-progress"><span style="width:${percent}%"></span></div>
       <span class="check-percent">${percent}%</span>
@@ -1032,35 +1198,35 @@
     if (state.installedQuery.trim() || state.installedFilter !== "all") {
       return `<div class="empty-state">
         <div class="empty-emblem">${icon("search")}</div>
-        <h2>Ничего не найдено</h2>
-        <p>Попробуйте изменить запрос или сбросить фильтр. Поиск работает по названию, автору и папкам аддона.</p>
+        <h2>${t("Ничего не найдено", "Nothing found")}</h2>
+        <p>${t("Попробуйте изменить запрос или сбросить фильтр. Поиск работает по названию, автору и папкам аддона.", "Try changing the query or resetting the filter. Search matches the addon name, author, and folders.")}</p>
         <div class="empty-actions">
-          <button class="btn btn-secondary" type="button" data-action="reset-installed-filter">${icon("refresh")} Сбросить фильтр</button>
+          <button class="btn btn-secondary" type="button" data-action="reset-installed-filter">${icon("refresh")} ${t("Сбросить фильтр", "Reset filter")}</button>
         </div>
       </div>`;
     }
     return `<div class="empty-state">
       <div class="empty-emblem">${icon("info")}</div>
-      <h2>Список пуст</h2>
-      <p>Обновите список установленных аддонов или проверьте папку AddOns в настройках.</p>
+      <h2>${t("Список пуст", "The list is empty")}</h2>
+      <p>${t("Обновите список установленных аддонов или проверьте папку AddOns в настройках.", "Refresh the installed addon list or check the AddOns folder in Settings.")}</p>
     </div>`;
   }
 
   function addonPrimaryAction(addon, status, task) {
     if (task) {
-      return `<button class="btn btn-secondary btn-sm" type="button" disabled>${icon("refresh", "spin")} В работе</button>`;
+      return `<button class="btn btn-secondary btn-sm" type="button" disabled>${icon("refresh", "spin")} ${t("В работе", "Working")}</button>`;
     }
     if (status.updateAvailable) {
-      return `<button class="btn btn-primary btn-sm" type="button" data-action="update-addon" data-key="${esc(addon.key)}">${icon("download")} Обновить</button>`;
+      return `<button class="btn btn-primary btn-sm" type="button" data-action="update-addon" data-key="${esc(addon.key)}">${icon("download")} ${t("Обновить", "Update")}</button>`;
     }
     if (["unknown", "error", "unresolved", "noCompatible"].includes(status.status)) {
-      return `<button class="btn btn-secondary btn-sm" type="button" data-action="check-addon" data-key="${esc(addon.key)}">${icon("refresh")} Проверить</button>`;
+      return `<button class="btn btn-secondary btn-sm" type="button" data-action="check-addon" data-key="${esc(addon.key)}">${icon("refresh")} ${t("Проверить", "Check")}</button>`;
     }
     return "";
   }
 
   function addonDetailsButton(addon, iconOnly = false) {
-    return `<button class="btn btn-ghost ${iconOnly ? "btn-icon" : "btn-sm"}" type="button" data-action="details-installed" data-key="${esc(addon.key)}" title="Подробнее об аддоне">${icon("info")}${iconOnly ? "" : " Детали"}</button>`;
+    return `<button class="btn btn-ghost ${iconOnly ? "btn-icon" : "btn-sm"}" type="button" data-action="details-installed" data-key="${esc(addon.key)}" title="${t("Подробнее об аддоне", "Addon details")}">${icon("info")}${iconOnly ? "" : ` ${t("Детали", "Details")}`}</button>`;
   }
 
   function renderInstalledCard(addon) {
@@ -1072,7 +1238,8 @@
     const folders = addon.folders || [];
     const version = addon.displayVersion || addon.version || "—";
     const summary =
-      String(addon.notes || "").replace(/\s+/g, " ").trim() || "Описание не опубликовано.";
+      String(addon.notes || "").replace(/\s+/g, " ").trim() ||
+      t("Описание не опубликовано.", "No description published.");
     const folderChips = folders
       .slice(0, 3)
       .map((folder) => `<span class="category-chip">${esc(folder)}</span>`)
@@ -1084,7 +1251,7 @@
         ${addonCardLogo(addon)}
         <div class="card-title-wrap">
           <button class="card-title" type="button" data-action="details-installed" data-key="${esc(addon.key)}" title="${esc(addon.title)}">${esc(addon.title)}</button>
-          <div class="card-author">${esc(addon.author || "Автор не указан")}</div>
+          <div class="card-author">${esc(addon.author || t("Автор не указан", "Unknown author"))}</div>
           <div class="card-badges">
             ${statusPill(status, status.error || "")}
             ${version ? `<span class="card-version">${esc(version)}</span>` : ""}
@@ -1095,7 +1262,7 @@
       ${folderChips || moreFolders ? `<div class="card-categories">${folderChips}${moreFolders}</div>` : ""}
       <div class="card-footer">
         <div class="card-stats">
-          ${status.updateAvailable && latest ? `<span>${icon("arrowUp")} Доступно: ${esc(latest)}</span>` : `<span>${icon("folder")} ${folders.length || 1} ${plural(folders.length || 1, "папка", "папки", "папок")}</span>`}
+          ${status.updateAvailable && latest ? `<span>${icon("arrowUp")} ${t("Доступно: {version}", "Available: {version}", { version: esc(latest) })}</span>` : `<span>${icon("folder")} ${tn(folders.length || 1, ["{count} папка", "{count} папки", "{count} папок"], ["{count} folder", "{count} folders"])}</span>`}
           ${addon.interface ? `<span>${icon("monitor")} ${esc(addon.interface)}</span>` : ""}
         </div>
         <div class="card-actions">
@@ -1115,7 +1282,8 @@
     const folders = addon.folders || [];
     const version = addon.displayVersion || addon.version || "—";
     const summary =
-      String(addon.notes || "").replace(/\s+/g, " ").trim() || "Описание не опубликовано.";
+      String(addon.notes || "").replace(/\s+/g, " ").trim() ||
+      t("Описание не опубликовано.", "No description published.");
     const folderChips = folders
       .slice(0, 3)
       .map((folder) => `<span class="category-chip">${esc(folder)}</span>`)
@@ -1127,16 +1295,16 @@
     let primaryAction = "";
     let detailsButton = "";
     if (task) {
-      primaryAction = `<button class="btn btn-secondary" type="button" disabled>${icon("refresh", "spin")} В работе</button>`;
+      primaryAction = `<button class="btn btn-secondary" type="button" disabled>${icon("refresh", "spin")} ${t("В работе", "Working")}</button>`;
     } else if (status.updateAvailable) {
-      primaryAction = `<button class="btn btn-primary" type="button" data-action="update-addon" data-key="${esc(addon.key)}">${icon("download")} Обновить</button>`;
+      primaryAction = `<button class="btn btn-primary" type="button" data-action="update-addon" data-key="${esc(addon.key)}">${icon("download")} ${t("Обновить", "Update")}</button>`;
     } else if (["unknown", "error", "unresolved", "noCompatible"].includes(status.status)) {
-      primaryAction = `<button class="btn btn-secondary" type="button" data-action="check-addon" data-key="${esc(addon.key)}">${icon("refresh")} Проверить</button>`;
+      primaryAction = `<button class="btn btn-secondary" type="button" data-action="check-addon" data-key="${esc(addon.key)}">${icon("refresh")} ${t("Проверить", "Check")}</button>`;
     } else {
-      primaryAction = `<button class="btn btn-secondary" type="button" data-action="details-installed" data-key="${esc(addon.key)}">${icon("info")} Подробнее</button>`;
+      primaryAction = `<button class="btn btn-secondary" type="button" data-action="details-installed" data-key="${esc(addon.key)}">${icon("info")} ${t("Подробнее", "Details")}</button>`;
     }
     if (!upToDate) {
-      detailsButton = `<button class="btn btn-ghost btn-icon" type="button" data-action="details-installed" data-key="${esc(addon.key)}" title="Подробнее об аддоне">${icon("info")}</button>`;
+      detailsButton = `<button class="btn btn-ghost btn-icon" type="button" data-action="details-installed" data-key="${esc(addon.key)}" title="${t("Подробнее об аддоне", "Addon details")}">${icon("info")}</button>`;
     }
 
     return `<article class="catalog-row installed-row" data-context-kind="installed" data-addon-key="${esc(addon.key)}" data-addon-title="${esc(addon.title)}">
@@ -1145,15 +1313,15 @@
         <div class="catalog-row-title-line">
           <button class="card-title" type="button" data-action="details-installed" data-key="${esc(addon.key)}" title="${esc(addon.title)}">${esc(addon.title)}</button>
           ${statusPill(status, status.error || "")}
-          ${version ? `<span class="card-version" title="Установленная версия">${esc(version)}</span>` : ""}
+          ${version ? `<span class="card-version" title="${t("Установленная версия", "Installed version")}">${esc(version)}</span>` : ""}
         </div>
-        <div class="card-author">${esc(addon.author || "Автор не указан")}</div>
+        <div class="card-author">${esc(addon.author || t("Автор не указан", "Unknown author"))}</div>
         <p class="catalog-row-summary">${esc(summary)}</p>
         ${folderChips || moreFolders ? `<div class="card-categories catalog-row-categories">${folderChips}${moreFolders}</div>` : ""}
       </div>
       <div class="catalog-row-meta">
         <span class="card-stats">
-          ${status.updateAvailable && latest ? `<span>${icon("arrowUp")} Доступно: ${esc(latest)}</span>` : `<span>${icon("folder")} ${folders.length || 1} ${plural(folders.length || 1, "папка", "папки", "папок")}</span>`}
+          ${status.updateAvailable && latest ? `<span>${icon("arrowUp")} ${t("Доступно: {version}", "Available: {version}", { version: esc(latest) })}</span>` : `<span>${icon("folder")} ${tn(folders.length || 1, ["{count} папка", "{count} папки", "{count} папок"], ["{count} folder", "{count} folders"])}</span>`}
           ${addon.interface ? `<span>${icon("monitor")} Interface ${esc(addon.interface)}</span>` : ""}
         </span>
       </div>
@@ -1164,42 +1332,42 @@
   function renderNoInstall() {
     return `<div class="empty-hero">
       <div class="empty-emblem">${icon("compass")}</div>
-      <div class="eyebrow">Начало работы</div>
-      <h2>World of Warcraft не найден</h2>
-      <p>Addon Forge автоматически ищет Retail, Classic, Classic Era и Forever. Если игра установлена на другом диске, укажите папку вручную — приложение найдёт нужный каталог AddOns.</p>
+      <div class="eyebrow">${t("Начало работы", "Getting started")}</div>
+      <h2>${t("World of Warcraft не найден", "World of Warcraft not found")}</h2>
+      <p>${t("Addon Forge автоматически ищет Retail, Classic, Classic Era и Forever. Если игра установлена на другом диске, укажите папку вручную — приложение найдёт нужный каталог AddOns.", "Addon Forge automatically looks for Retail, Classic, Classic Era, and Forever. If the game is installed on another drive, select its folder manually — the app will find the correct AddOns directory.")}</p>
       <div class="empty-actions">
-        <button class="btn btn-primary" type="button" data-action="choose-folder">${icon("folder")} Указать папку</button>
-        <button class="btn btn-secondary" type="button" data-action="rescan-installs">${icon("search")} Искать снова</button>
+        <button class="btn btn-primary" type="button" data-action="choose-folder">${icon("folder")} ${t("Указать папку", "Choose folder")}</button>
+        <button class="btn btn-secondary" type="button" data-action="rescan-installs">${icon("search")} ${t("Искать снова", "Search again")}</button>
       </div>
-      <div class="empty-hint">Можно выбрать папку игры, папку версии (_retail_, _forever_) или Interface/AddOns.</div>
+      <div class="empty-hint">${t("Можно выбрать папку игры, папку версии (_retail_, _forever_) или Interface/AddOns.", "You can select the game folder, a version folder (_retail_, _forever_), or Interface/AddOns.")}</div>
     </div>`;
   }
 
   function renderCatalogPage() {
     const catalog = state.catalog;
     const sortOptions = [
-      ["popular", "По популярности"],
-      ["updated", "Недавно обновлённые"],
-      ["name", "По алфавиту"],
+      ["popular", t("По популярности", "Most popular")],
+      ["updated", t("Недавно обновлённые", "Recently updated")],
+      ["name", t("По алфавиту", "Alphabetical")],
     ];
     const toolbar = `<div class="catalog-toolbar">
       <div class="search-box">
         ${icon("search")}
-        <input id="catalog-search" data-input="catalog-search" type="text" value="${esc(catalog.query)}" placeholder="Название аддона или ключевое слово…" autocomplete="off" spellcheck="false" />
+        <input id="catalog-search" data-input="catalog-search" type="text" value="${esc(catalog.query)}" placeholder="${t("Название аддона или ключевое слово…", "Addon name or keyword…")}" autocomplete="off" spellcheck="false" />
       </div>
       <div class="select-wrap">
-        <select id="catalog-sort" data-input="catalog-sort" aria-label="Сортировка каталога">
+        <select id="catalog-sort" data-input="catalog-sort" aria-label="${t("Сортировка каталога", "Catalog sorting")}">
           ${sortOptions.map(([value, label]) => `<option value="${value}" ${catalog.sort === value ? "selected" : ""}>${label}</option>`).join("")}
         </select>
       </div>
       ${viewToggle("catalog")}
-      <button class="btn btn-secondary btn-icon" type="button" data-action="catalog-refresh" title="Обновить каталог">${icon("refresh", catalog.loading ? "spin" : "")}</button>
+      <button class="btn btn-secondary btn-icon" type="button" data-action="catalog-refresh" title="${t("Обновить каталог", "Refresh catalog")}">${icon("refresh", catalog.loading ? "spin" : "")}</button>
     </div>`;
 
     const count = catalog.results.length;
     const statusLine = `<div class="catalog-status">
-      ${catalog.loading ? `<span class="check-spinner" style="width:12px;height:12px;flex-basis:12px;border-width:1px"></span><span>Загрузка каталога CurseForge…</span>` : `<span>${count ? `Показано ${count} ${plural(count, "аддон", "аддона", "аддонов")}` : "Каталог CurseForge"}</span>${catalog.hasMore ? "<span>· есть ещё</span>" : ""}`}
-      ${!state.install ? '<span>· установка не выбрана, фильтр по версии игры отключён</span>' : ""}
+      ${catalog.loading ? `<span class="check-spinner" style="width:12px;height:12px;flex-basis:12px;border-width:1px"></span><span>${t("Загрузка каталога CurseForge…", "Loading the CurseForge catalog…")}</span>` : `<span>${count ? tn(count, ["Показан {count} аддон", "Показано {count} аддона", "Показано {count} аддонов"], ["{count} addon shown", "{count} addons shown"]) : t("Каталог CurseForge", "CurseForge catalog")}</span>${catalog.hasMore ? `<span>· ${t("есть ещё", "more available")}</span>` : ""}`}
+      ${!state.install ? `<span>· ${t("установка не выбрана, фильтр по версии игры отключён", "no installation selected; game version filtering is disabled")}</span>` : ""}
     </div>`;
 
     const listMode = state.viewModes.catalog === "list";
@@ -1209,9 +1377,9 @@
     let content = "";
     if (catalog.error) {
       content = `<div class="error-panel">
-        <h3>Не удалось загрузить каталог</h3>
-        <p>${esc(catalog.error)}</p>
-        <button class="btn btn-secondary btn-sm" type="button" data-action="catalog-refresh">${icon("refresh")} Повторить</button>
+        <h3>${t("Не удалось загрузить каталог", "Could not load the catalog")}</h3>
+        <p>${esc(errorText(catalog.error))}</p>
+        <button class="btn btn-secondary btn-sm" type="button" data-action="catalog-refresh">${icon("refresh")} ${t("Повторить", "Retry")}</button>
       </div>`;
       if (catalog.results.length) {
         content += `<div class="${containerClass}" style="margin-top:12px">${catalog.results.map(renderItem).join("")}</div>`;
@@ -1223,16 +1391,16 @@
     } else if (!catalog.results.length) {
       content = `<div class="empty-state">
         <div class="empty-emblem">${icon("search")}</div>
-        <h2>Ничего не найдено</h2>
-        <p>${catalog.query ? `По запросу «${esc(catalog.query)}» ничего не найдено.` : "Каталог пуст."} Попробуйте другое название или измените сортировку.</p>
+        <h2>${t("Ничего не найдено", "Nothing found")}</h2>
+        <p>${catalog.query ? t("По запросу «{query}» ничего не найдено.", "Nothing was found for “{query}”.", { query: esc(catalog.query) }) : t("Каталог пуст.", "The catalog is empty.")} ${t("Попробуйте другое название или измените сортировку.", "Try another name or change the sorting.")}</p>
         <div class="empty-actions">
-          <button class="btn btn-secondary" type="button" data-action="catalog-reset">${icon("refresh")} Сбросить поиск</button>
+          <button class="btn btn-secondary" type="button" data-action="catalog-reset">${icon("refresh")} ${t("Сбросить поиск", "Reset search")}</button>
         </div>
       </div>`;
     } else {
       content = `<div class="${containerClass}">${catalog.results.map(renderItem).join("")}</div>`;
       if (catalog.hasMore) {
-        content += `<div class="load-more-row"><button class="btn btn-secondary" type="button" data-action="catalog-more" ${catalog.loading ? "disabled" : ""}>${icon("download")} ${catalog.loading ? "Загрузка…" : "Показать ещё"}</button></div>`;
+        content += `<div class="load-more-row"><button class="btn btn-secondary" type="button" data-action="catalog-more" ${catalog.loading ? "disabled" : ""}>${icon("download")} ${catalog.loading ? t("Загрузка…", "Loading…") : t("Показать ещё", "Show more")}</button></div>`;
       }
     }
 
@@ -1276,22 +1444,23 @@
     const categories = categoryNames(remote, 3);
     const busy = state.installTasks.size > 0 || state.batchActive;
     const isUpdate = Boolean(check?.updateAvailable);
-    const summary = String(remote.summary || "").trim() || "Описание не опубликовано.";
+    const summary =
+      String(remote.summary || "").trim() || t("Описание не опубликовано.", "No description published.");
 
     let badge = "";
-    if (installed && isUpdate) badge = '<span class="badge badge-warning">Есть обновление</span>';
-    else if (installed) badge = '<span class="badge badge-success">Установлен</span>';
+    if (installed && isUpdate) badge = `<span class="badge badge-warning">${t("Есть обновление", "Update available")}</span>`;
+    else if (installed) badge = `<span class="badge badge-success">${t("Установлен", "Installed")}</span>`;
 
     let primary = "";
     if (isUpdate) {
-      primary = `<button class="btn btn-primary" type="button" data-action="update-addon" data-key="${esc(installed.key)}" ${busy ? "disabled" : ""}>${icon("download")} Обновить</button>`;
+      primary = `<button class="btn btn-primary" type="button" data-action="update-addon" data-key="${esc(installed.key)}" ${busy ? "disabled" : ""}>${icon("download")} ${t("Обновить", "Update")}</button>`;
     } else if (installed) {
-      primary = `<button class="btn btn-secondary" type="button" data-action="catalog-details" data-mod-id="${Number(remote.id)}" data-title="${esc(remote.name)}">${icon("info")} Подробнее</button>`;
+      primary = `<button class="btn btn-secondary" type="button" data-action="catalog-details" data-mod-id="${Number(remote.id)}" data-title="${esc(remote.name)}">${icon("info")} ${t("Подробнее", "Details")}</button>`;
     } else {
-      primary = `<button class="btn btn-primary" type="button" data-action="catalog-install" data-mod-id="${Number(remote.id)}" data-title="${esc(remote.name)}" ${busy || !latest ? "disabled" : ""} title="${latest ? "Установить последнюю версию" : "Нет файла для вашей версии игры"}">${icon("download")} Установить</button>`;
+      primary = `<button class="btn btn-primary" type="button" data-action="catalog-install" data-mod-id="${Number(remote.id)}" data-title="${esc(remote.name)}" ${busy || !latest ? "disabled" : ""} title="${latest ? t("Установить последнюю версию", "Install the latest version") : t("Нет файла для вашей версии игры", "No file for your game version")}">${icon("download")} ${t("Установить", "Install")}</button>`;
     }
     const detailsButton = !(installed && !isUpdate)
-      ? `<button class="btn btn-ghost btn-icon" type="button" data-action="catalog-details" data-mod-id="${Number(remote.id)}" data-title="${esc(remote.name)}" title="Подробнее">${icon("info")}</button>`
+      ? `<button class="btn btn-ghost btn-icon" type="button" data-action="catalog-details" data-mod-id="${Number(remote.id)}" data-title="${esc(remote.name)}" title="${t("Подробнее", "Details")}">${icon("info")}</button>`
       : "";
 
     return `<article class="catalog-row" data-context-kind="catalog" data-mod-id="${Number(remote.id)}" data-title="${esc(remote.name)}">
@@ -1303,7 +1472,7 @@
         <div class="catalog-row-title-line">
           <button class="card-title" type="button" data-action="catalog-details" data-mod-id="${Number(remote.id)}" data-title="${esc(remote.name)}" title="${esc(remote.name)}">${esc(remote.name)}</button>
           ${badge}
-          ${version ? `<span class="card-version" title="Последняя версия">${esc(version)}</span>` : ""}
+          ${version ? `<span class="card-version" title="${t("Последняя версия", "Latest version")}">${esc(version)}</span>` : ""}
         </div>
         <div class="card-author">${esc(authorLine(remote))}</div>
         <p class="catalog-row-summary">${esc(summary)}</p>
@@ -1325,23 +1494,24 @@
     const categories = categoryNames(remote, 3);
     const busy = state.installTasks.size > 0 || state.batchActive;
     const isUpdate = Boolean(check?.updateAvailable);
-    const summary = String(remote.summary || "").trim() || "Описание не опубликовано.";
+    const summary =
+      String(remote.summary || "").trim() || t("Описание не опубликовано.", "No description published.");
 
     let badge = "";
-    if (installed && isUpdate) badge = '<span class="badge badge-warning">Есть обновление</span>';
-    else if (installed) badge = '<span class="badge badge-success">Установлен</span>';
+    if (installed && isUpdate) badge = `<span class="badge badge-warning">${t("Есть обновление", "Update available")}</span>`;
+    else if (installed) badge = `<span class="badge badge-success">${t("Установлен", "Installed")}</span>`;
 
     let primary = "";
     if (isUpdate) {
-      primary = `<button class="btn btn-primary" type="button" data-action="update-addon" data-key="${esc(installed.key)}" ${busy ? "disabled" : ""}>${icon("download")} Обновить</button>`;
+      primary = `<button class="btn btn-primary" type="button" data-action="update-addon" data-key="${esc(installed.key)}" ${busy ? "disabled" : ""}>${icon("download")} ${t("Обновить", "Update")}</button>`;
     } else if (installed) {
-      primary = `<button class="btn btn-secondary" type="button" data-action="catalog-details" data-mod-id="${Number(remote.id)}" data-title="${esc(remote.name)}">${icon("info")} Подробнее</button>`;
+      primary = `<button class="btn btn-secondary" type="button" data-action="catalog-details" data-mod-id="${Number(remote.id)}" data-title="${esc(remote.name)}">${icon("info")} ${t("Подробнее", "Details")}</button>`;
     } else {
-      primary = `<button class="btn btn-primary" type="button" data-action="catalog-install" data-mod-id="${Number(remote.id)}" data-title="${esc(remote.name)}" ${busy || !latest ? "disabled" : ""} title="${latest ? "Установить последнюю версию" : "Нет файла для вашей версии игры"}">${icon("download")} Установить</button>`;
+      primary = `<button class="btn btn-primary" type="button" data-action="catalog-install" data-mod-id="${Number(remote.id)}" data-title="${esc(remote.name)}" ${busy || !latest ? "disabled" : ""} title="${latest ? t("Установить последнюю версию", "Install the latest version") : t("Нет файла для вашей версии игры", "No file for your game version")}">${icon("download")} ${t("Установить", "Install")}</button>`;
     }
 
     const detailsButton = !(installed && !isUpdate)
-      ? `<button class="btn btn-ghost btn-icon" type="button" data-action="catalog-details" data-mod-id="${Number(remote.id)}" data-title="${esc(remote.name)}" title="Подробнее">${icon("info")}</button>`
+      ? `<button class="btn btn-ghost btn-icon" type="button" data-action="catalog-details" data-mod-id="${Number(remote.id)}" data-title="${esc(remote.name)}" title="${t("Подробнее", "Details")}">${icon("info")}</button>`
       : "";
 
     return `<article class="addon-card" data-context-kind="catalog" data-mod-id="${Number(remote.id)}" data-title="${esc(remote.name)}">
@@ -1355,7 +1525,7 @@
           <div class="card-author">${esc(authorLine(remote))}</div>
           <div class="card-badges">
             ${badge}
-            ${version ? `<span class="card-version" title="Последняя версия">${esc(version)}</span>` : ""}
+            ${version ? `<span class="card-version" title="${t("Последняя версия", "Latest version")}">${esc(version)}</span>` : ""}
           </div>
         </div>
       </div>
@@ -1379,10 +1549,10 @@
     const official = Boolean(draft.useOfficialApi);
     const key = String(draft.apiKey || "");
     const keyHint = official && !key.trim()
-      ? '<div class="hint warning">Официальный API не будет работать без ключа. Получите ключ в CurseForge Console.</div>'
+      ? `<div class="hint warning">${t("Официальный API не будет работать без ключа. Получите ключ в CurseForge Console.", "The official API will not work without a key. Get one in the CurseForge Console.")}</div>`
       : key.trim()
-        ? '<div class="hint success">Ключ сохранён локально и не покидает этот компьютер.</div>'
-        : '<div class="hint">Для прокси ключ не требуется. Официальный API доступен с личным ключом CurseForge.</div>';
+        ? `<div class="hint success">${t("Ключ сохранён локально и не покидает этот компьютер.", "The key is stored locally and never leaves this computer.")}</div>`
+        : `<div class="hint">${t("Для прокси ключ не требуется. Официальный API доступен с личным ключом CurseForge.", "The proxy does not require a key. The official API is available with a personal CurseForge key.")}</div>`;
 
     const installSection = install
       ? `<div class="install-summary ${install.flavor === "_forever_" ? "flavor-forever" : ""}">
@@ -1394,31 +1564,31 @@
           <span class="badge badge-success install-summary-badge">v${esc(install.version || install.build || "—")}</span>
         </div>
         <div class="settings-actions">
-          <button class="btn btn-secondary btn-sm" type="button" data-action="open-install-modal">${icon("gamepad")} Сменить установку</button>
-          <button class="btn btn-secondary btn-sm" type="button" data-action="choose-folder">${icon("folder")} Указать папку</button>
-          <button class="btn btn-ghost btn-sm" type="button" data-action="rescan-installs">${icon("search")} Найти установки</button>
-          <button class="btn btn-ghost btn-sm" type="button" data-action="refresh-addons">${icon("refresh")} Обновить аддоны</button>
+          <button class="btn btn-secondary btn-sm" type="button" data-action="open-install-modal">${icon("gamepad")} ${t("Сменить установку", "Change installation")}</button>
+          <button class="btn btn-secondary btn-sm" type="button" data-action="choose-folder">${icon("folder")} ${t("Указать папку", "Choose folder")}</button>
+          <button class="btn btn-ghost btn-sm" type="button" data-action="rescan-installs">${icon("search")} ${t("Найти установки", "Find installations")}</button>
+          <button class="btn btn-ghost btn-sm" type="button" data-action="refresh-addons">${icon("refresh")} ${t("Обновить аддоны", "Refresh addons")}</button>
         </div>`
       : `<div class="error-panel" style="margin:0">
-          <h3>Установка не выбрана</h3>
-          <p>Найдите World of Warcraft автоматически или укажите папку игры вручную.</p>
+          <h3>${t("Установка не выбрана", "No installation selected")}</h3>
+          <p>${t("Найдите World of Warcraft автоматически или укажите папку игры вручную.", "Find World of Warcraft automatically or select the game folder manually.")}</p>
           <div class="settings-actions">
-            <button class="btn btn-primary btn-sm" type="button" data-action="choose-folder">${icon("folder")} Указать папку</button>
-            <button class="btn btn-secondary btn-sm" type="button" data-action="rescan-installs">${icon("search")} Найти установки</button>
+            <button class="btn btn-primary btn-sm" type="button" data-action="choose-folder">${icon("folder")} ${t("Указать папку", "Choose folder")}</button>
+            <button class="btn btn-secondary btn-sm" type="button" data-action="rescan-installs">${icon("search")} ${t("Найти установки", "Find installations")}</button>
           </div>
         </div>`;
 
     const storageRows = [
-      ["Конфигурация", storage.configPath, "config"],
-      ["Манифест", storage.manifestPath, "manifest"],
-      ["Резервные копии", storage.backupsPath, "backups"],
-      ["Загрузки", storage.downloadsPath, "downloads"],
+      [t("Конфигурация", "Configuration"), storage.configPath, "config"],
+      [t("Манифест", "Manifest"), storage.manifestPath, "manifest"],
+      [t("Резервные копии", "Backups"), storage.backupsPath, "backups"],
+      [t("Загрузки", "Downloads"), storage.downloadsPath, "downloads"],
     ]
       .map(
         ([label, path, kind]) => `<div class="storage-row">
           <span class="storage-label">${label}</span>
           <span class="storage-path" title="${esc(path || "")}">${esc(path || "—")}</span>
-          <button class="btn btn-ghost" type="button" data-action="open-storage" data-kind="${kind}" ${path ? "" : "disabled"}>${icon("folder")} Открыть</button>
+          <button class="btn btn-ghost" type="button" data-action="open-storage" data-kind="${kind}" ${path ? "" : "disabled"}>${icon("folder")} ${t("Открыть", "Open")}</button>
         </div>`,
       )
       .join("");
@@ -1427,7 +1597,7 @@
       <section class="settings-card span-2">
         <div class="settings-card-head">
           <div class="section-icon">${icon("gamepad")}</div>
-          <div><h2>Установка World of Warcraft</h2><p>Версия игры определяет, какие файлы CurseForge будут скачаны.</p></div>
+          <div><h2>${t("Установка World of Warcraft", "World of Warcraft installation")}</h2><p>${t("Версия игры определяет, какие файлы CurseForge будут скачаны.", "The game version determines which CurseForge files are downloaded.")}</p></div>
         </div>
         ${installSection}
       </section>
@@ -1435,56 +1605,56 @@
       <section class="settings-card">
         <div class="settings-card-head">
           <div class="section-icon">${icon("key")}</div>
-          <div><h2>CurseForge API</h2><p>По умолчанию используется публичный прокси без ключа.</p></div>
+          <div><h2>CurseForge API</h2><p>${t("По умолчанию используется публичный прокси без ключа.", "A public keyless proxy is used by default.")}</p></div>
         </div>
         <div class="choice-grid">
           <button class="api-choice ${official ? "" : "selected"}" type="button" data-action="set-api-mode" data-official="false">
-            <span class="choice-title">Прокси без ключа</span>
-            <span class="choice-desc">api.curse.tools · работает сразу</span>
+            <span class="choice-title">${t("Прокси без ключа", "Keyless proxy")}</span>
+            <span class="choice-desc">api.curse.tools · ${t("работает сразу", "works instantly")}</span>
           </button>
           <button class="api-choice ${official ? "selected" : ""}" type="button" data-action="set-api-mode" data-official="true">
-            <span class="choice-title">Официальный API</span>
-            <span class="choice-desc">api.curseforge.com · нужен ключ</span>
+            <span class="choice-title">${t("Официальный API", "Official API")}</span>
+            <span class="choice-desc">api.curseforge.com · ${t("нужен ключ", "requires a key")}</span>
           </button>
         </div>
-        <div class="field-label">API-ключ CurseForge</div>
+        <div class="field-label">${t("API-ключ CurseForge", "CurseForge API key")}</div>
         <div class="key-row">
           <div class="input-with-action">
-            <input id="api-key-input" data-input="api-key" type="${state.showApiKey ? "text" : "password"}" value="${esc(key)}" placeholder="Вставьте ключ…" autocomplete="off" spellcheck="false" />
-            <button class="key-toggle" type="button" data-action="toggle-api-key">${state.showApiKey ? "Скрыть" : "Показать"}</button>
+            <input id="api-key-input" data-input="api-key" type="${state.showApiKey ? "text" : "password"}" value="${esc(key)}" placeholder="${t("Вставьте ключ…", "Paste your key…")}" autocomplete="off" spellcheck="false" />
+            <button class="key-toggle" type="button" data-action="toggle-api-key">${state.showApiKey ? t("Скрыть", "Hide") : t("Показать", "Show")}</button>
           </div>
-          <button class="btn btn-secondary btn-sm" type="button" data-action="save-api-key">${icon("check")} Сохранить</button>
+          <button class="btn btn-secondary btn-sm" type="button" data-action="save-api-key">${icon("check")} ${t("Сохранить", "Save")}</button>
         </div>
         ${keyHint}
-        <div class="hint"><button class="btn btn-ghost btn-sm" style="height:auto;padding:0;margin-top:2px;font-size:11.5px;color:var(--gold)" type="button" data-action="open-url" data-url="https://console.curseforge.com/">Открыть CurseForge Console ${icon("external")}</button></div>
+        <div class="hint"><button class="btn btn-ghost btn-sm" style="height:auto;padding:0;margin-top:2px;font-size:11.5px;color:var(--gold)" type="button" data-action="open-url" data-url="https://console.curseforge.com/">${t("Открыть CurseForge Console", "Open CurseForge Console")} ${icon("external")}</button></div>
       </section>
 
       <section class="settings-card">
         <div class="settings-card-head">
           <div class="section-icon">${icon("shield")}</div>
-          <div><h2>Обновления и копии</h2><p>Поведение проверки и безопасность установки.</p></div>
+          <div><h2>${t("Обновления и копии", "Updates and backups")}</h2><p>${t("Поведение проверки и безопасность установки.", "Check behavior and installation safety.")}</p></div>
         </div>
         <div class="settings-row">
           <div>
-            <div class="settings-row-title">Проверять обновления при запуске</div>
-            <div class="settings-row-desc">Сверять установленные аддоны с CurseForge автоматически.</div>
+            <div class="settings-row-title">${t("Проверять обновления при запуске", "Check for updates on startup")}</div>
+            <div class="settings-row-desc">${t("Сверять установленные аддоны с CurseForge автоматически.", "Compare installed addons with CurseForge automatically.")}</div>
           </div>
           <button class="switch ${settings.autoCheckUpdates ? "on" : ""}" type="button" role="switch" aria-checked="${settings.autoCheckUpdates}" data-action="toggle-setting" data-field="autoCheckUpdates"><span></span></button>
         </div>
         <div class="settings-row">
           <div>
-            <div class="settings-row-title">Сохранять резервные копии</div>
-            <div class="settings-row-desc">Перед заменой файлов создавать копию старых папок в локальном хранилище.</div>
+            <div class="settings-row-title">${t("Сохранять резервные копии", "Keep backups")}</div>
+            <div class="settings-row-desc">${t("Перед заменой файлов создавать копию старых папок в локальном хранилище.", "Create a copy of old folders in local storage before replacing files.")}</div>
           </div>
           <button class="switch ${settings.keepBackups ? "on" : ""}" type="button" role="switch" aria-checked="${settings.keepBackups}" data-action="toggle-setting" data-field="keepBackups"><span></span></button>
         </div>
-        <div class="hint">Резервные копии хранятся в LocalAppData и позволяют вручную откатить установку.</div>
+        <div class="hint">${t("Резервные копии хранятся в LocalAppData и позволяют вручную откатить установку.", "Backups are stored in LocalAppData and allow manual rollback.")}</div>
       </section>
 
       <section class="settings-card span-2">
         <div class="settings-card-head">
           <div class="section-icon">${icon("database")}</div>
-          <div><h2>Локальное хранилище</h2><p>Конфигурация, манифест установок, архивы и резервные копии.</p></div>
+          <div><h2>${t("Локальное хранилище", "Local storage")}</h2><p>${t("Конфигурация, манифест установок, архивы и резервные копии.", "Configuration, installation manifest, archives, and backups.")}</p></div>
         </div>
         <div class="storage-list">${storageRows}</div>
       </section>
@@ -1492,17 +1662,17 @@
       <section class="settings-card span-2">
         <div class="settings-card-head">
           <div class="section-icon">${icon("sparkle")}</div>
-          <div><h2>О приложении</h2><p>Addon Forge — менеджер аддонов World of Warcraft на Rust и Tauri.</p></div>
+          <div><h2>${t("О приложении", "About")}</h2><p>${t("Addon Forge — менеджер аддонов World of Warcraft на Rust и Tauri.", "Addon Forge is a World of Warcraft addon manager built with Rust and Tauri.")}</p></div>
         </div>
-        <p class="about-copy">Приложение читает TOC-метаданные установленных аддонов, определяет проект CurseForge, подбирает совместимый файл и безопасно распаковывает архив в папку AddOns. Перед заменой существующих папок создаётся резервная копия.</p>
+        <p class="about-copy">${t("Приложение читает TOC-метаданные установленных аддонов, определяет проект CurseForge, подбирает совместимый файл и безопасно распаковывает архив в папку AddOns. Перед заменой существующих папок создаётся резервная копия.", "The app reads TOC metadata from installed addons, resolves the CurseForge project, selects a compatible file, and safely extracts the archive into AddOns. Existing folders are backed up before replacement.")}</p>
         <div class="about-links">
           <button class="btn btn-secondary btn-sm" type="button" data-action="open-url" data-url="https://www.curseforge.com/wow/addons">${icon("external")} CurseForge</button>
-          <button class="btn btn-ghost btn-sm" type="button" data-action="nav" data-page="catalog">${icon("compass")} Открыть каталог</button>
+          <button class="btn btn-ghost btn-sm" type="button" data-action="nav" data-page="catalog">${icon("compass")} ${t("Открыть каталог", "Open catalog")}</button>
         </div>
         <div class="about-meta">
-          <div class="about-meta-item"><strong>Версия</strong>0.1.0</div>
-          <div class="about-meta-item"><strong>Интерфейс</strong>Tauri 2 + HTML/CSS/JS</div>
-          <div class="about-meta-item"><strong>Источник</strong>CurseForge</div>
+          <div class="about-meta-item"><strong>${t("Версия", "Version")}</strong>0.1.0</div>
+          <div class="about-meta-item"><strong>${t("Интерфейс", "Interface")}</strong>Tauri 2 + HTML/CSS/JS</div>
+          <div class="about-meta-item"><strong>${t("Источник", "Source")}</strong>CurseForge</div>
         </div>
       </section>
     </div>`;
@@ -1513,7 +1683,7 @@
   }
 
   function modalCloseButton(action = "details-close") {
-    return `<button class="modal-close" type="button" data-action="${action}" aria-label="Закрыть">${icon("close")}</button>`;
+    return `<button class="modal-close" type="button" data-action="${action}" aria-label="${t("Закрыть", "Close")}">${icon("close")}</button>`;
   }
 
   function renderDetailsModal() {
@@ -1524,10 +1694,10 @@
       return `<div class="modal-backdrop" data-action="details-backdrop">
         <div class="modal details-modal" role="dialog" aria-modal="true">
           <div class="modal-header">
-            <div><h2>${esc(details.title || "Аддон CurseForge")}</h2><p>Загрузка описания с CurseForge…</p></div>
+            <div><h2>${esc(details.title || t("Аддон CurseForge", "CurseForge addon"))}</h2><p>${t("Загрузка описания с CurseForge…", "Loading the description from CurseForge…")}</p></div>
             ${modalCloseButton()}
           </div>
-          <div class="details-loading"><span class="loading-ring"></span><span>Получение информации…</span></div>
+          <div class="details-loading"><span class="loading-ring"></span><span>${t("Получение информации…", "Fetching information…")}</span></div>
         </div>
       </div>`;
     }
@@ -1536,14 +1706,14 @@
       return `<div class="modal-backdrop" data-action="details-backdrop">
         <div class="modal details-modal" role="dialog" aria-modal="true">
           <div class="modal-header">
-            <div><h2>${esc(details.title || "Аддон CurseForge")}</h2><p>Не удалось получить данные проекта.</p></div>
+            <div><h2>${esc(details.title || t("Аддон CurseForge", "CurseForge addon"))}</h2><p>${t("Не удалось получить данные проекта.", "Could not load project data.")}</p></div>
             ${modalCloseButton()}
           </div>
           <div class="modal-error">
             <div class="empty-emblem">${icon("info")}</div>
-            <h3>Ошибка загрузки</h3>
-            <p>${esc(details.error)}</p>
-            <button class="btn btn-secondary btn-sm" type="button" data-action="details-retry">${icon("refresh")} Повторить</button>
+            <h3>${t("Ошибка загрузки", "Loading error")}</h3>
+            <p>${esc(errorText(details.error))}</p>
+            <button class="btn btn-secondary btn-sm" type="button" data-action="details-retry">${icon("refresh")} ${t("Повторить", "Retry")}</button>
           </div>
         </div>
       </div>`;
@@ -1566,22 +1736,22 @@
     const external = curseUrl(remote);
     const isUpdate = Boolean(installed && check?.updateAvailable);
     const actionLabel = !file
-      ? "Нет версии для игры"
+      ? t("Нет версии для игры", "No version for the game")
       : busy
-        ? "Подождите…"
+        ? t("Подождите…", "Please wait…")
         : installed
           ? isUpdate
-            ? `Обновить${latestLabel ? ` · ${latestLabel}` : ""}`
-            : "Переустановить"
-          : `Установить${latestLabel ? ` · ${latestLabel}` : ""}`;
+            ? `${t("Обновить", "Update")}${latestLabel ? ` · ${latestLabel}` : ""}`
+            : t("Переустановить", "Reinstall")
+          : `${t("Установить", "Install")}${latestLabel ? ` · ${latestLabel}` : ""}`;
 
     const note = !file
-      ? "Для выбранной версии игры у проекта нет подходящего файла."
+      ? t("Для выбранной версии игры у проекта нет подходящего файла.", "The project has no compatible file for the selected game version.")
       : installed
         ? isUpdate
-          ? "Текущая версия будет заменена, старая папка сохранится в резервной копии."
-          : "Аддон уже установлен. Можно переустановить последнюю версию поверх текущей."
-        : `Файл ${esc(file.fileName || file.displayName || "")} будет распакован в AddOns.`;
+          ? t("Текущая версия будет заменена, старая папка сохранится в резервной копии.", "The current version will be replaced; the old folder will be kept in a backup.")
+          : t("Аддон уже установлен. Можно переустановить последнюю версию поверх текущей.", "The addon is already installed. You can reinstall the latest version over the current one.")
+        : t("Файл {file} будет распакован в AddOns.", "The file {file} will be extracted into AddOns.", { file: esc(file.fileName || file.displayName || "") });
 
     const localVersion = String(state.install?.version || "").trim();
     const supportedVersions = [...(data.supportedGameVersions || [])];
@@ -1606,12 +1776,12 @@
         const isSupported = supportedVersionKeys.has(String(version).toLowerCase());
         const classes = ["game-version-chip"];
         if (isCurrent) classes.push("current");
-        const tag = isCurrent ? '<span class="version-tag">ваша</span>' : "";
+        const tag = isCurrent ? `<span class="version-tag">${t("ваша", "yours")}</span>` : "";
         const title = isCurrent
           ? isSupported
-            ? "Ваша версия игры поддерживается"
-            : "Для вашей версии игры нет подходящего файла"
-          : "Для этой версии игры доступен файл";
+            ? t("Ваша версия игры поддерживается", "Your game version is supported")
+            : t("Для вашей версии игры нет подходящего файла", "There is no compatible file for your game version")
+          : t("Для этой версии игры доступен файл", "A file is available for this game version");
         return `<span class="${classes.join(" ")}" title="${esc(title)}">${esc(version)}${tag}</span>`;
       })
       .join("");
@@ -1625,7 +1795,7 @@
           gallery.length > 6 && index === 5
             ? `<span class="shot-more">+${gallery.length - 6}</span>`
             : "";
-        return `<button class="shot-thumb ${active ? "active" : ""}" type="button" data-action="details-shot" data-index="${index}" title="${esc(shot.title)}" aria-label="Открыть галерею: ${esc(shot.title)}">
+        return `<button class="shot-thumb ${active ? "active" : ""}" type="button" data-action="details-shot" data-index="${index}" title="${esc(shot.title)}" aria-label="${t("Открыть галерею: {title}", "Open gallery: {title}", { title: esc(shot.title) })}">
           <img src="${esc(shot.thumb)}" alt="" loading="lazy" />
           ${more}
         </button>`;
@@ -1633,7 +1803,7 @@
       .join("");
 
     return `<div class="modal-backdrop" data-action="details-backdrop">
-      <div class="modal details-modal" role="dialog" aria-modal="true" aria-label="${esc(remote.name || "Аддон")}">
+      <div class="modal details-modal" role="dialog" aria-modal="true" aria-label="${esc(remote.name || t("Аддон", "Addon"))}">
         <div class="details-hero">
           <div class="details-hero-bg"${heroUrl ? ` style="background-image:url('${cssUrl(heroUrl)}')"` : ""}></div>
           <div class="details-hero-content">
@@ -1642,17 +1812,17 @@
               ${logo ? `<img src="${esc(logo)}" alt="" />` : ""}
             </div>
             <div class="details-title-wrap">
-              <h2 class="details-title" title="${esc(remote.name || "")}">${esc(remote.name || "Без названия")}</h2>
+              <h2 class="details-title" title="${esc(remote.name || "")}">${esc(remote.name || t("Без названия", "Untitled"))}</h2>
               <div class="details-meta-line">
                 <span>${esc(authorLine(remote))}</span>
                 <span class="meta-dot"></span>
-                <span>${formatNumber(remote.downloadCount)} загрузок</span>
+                <span>${t("{count} загрузок", "{count} downloads", { count: formatNumber(remote.downloadCount) })}</span>
                 <span class="meta-dot"></span>
-                <span>Обновлён ${formatDate(remote.dateModified)}</span>
+                <span>${t("Обновлён {date}", "Updated {date}", { date: formatDate(remote.dateModified) })}</span>
               </div>
             </div>
             <div class="details-hero-actions">
-              ${external ? `<button class="btn btn-secondary btn-icon" type="button" data-action="open-url" data-url="${esc(external)}" title="Открыть на CurseForge">${icon("external")}</button>` : ""}
+              ${external ? `<button class="btn btn-secondary btn-icon" type="button" data-action="open-url" data-url="${esc(external)}" title="${t("Открыть на CurseForge", "Open on CurseForge")}">${icon("external")}</button>` : ""}
               ${modalCloseButton()}
             </div>
           </div>
@@ -1661,42 +1831,42 @@
         <div class="details-body">
           <div class="details-layout">
             <div>
-              <div class="details-section-label">Описание</div>
+              <div class="details-section-label">${t("Описание", "Description")}</div>
               ${formatDescription(data.description)}
             </div>
             <aside class="details-side">
               <div class="side-block">
-                <div class="side-block-title">Версия</div>
+                <div class="side-block-title">${t("Версия", "Version")}</div>
                 <div class="side-list">
-                  <div class="side-pair"><span class="label">Последняя</span><span class="value" style="color:var(--gold)">${esc(latestLabel || "—")}</span></div>
-                  <div class="side-pair"><span class="label">Тип</span><span class="value">${esc(releaseLabel(file?.releaseType))}</span></div>
-                  <div class="side-pair"><span class="label">Размер</span><span class="value">${formatBytes(file?.fileLength)}</span></div>
-                  <div class="side-pair"><span class="label">Файл</span><span class="value" title="${esc(file?.fileName || "")}">${esc(file?.fileName || "—")}</span></div>
+                  <div class="side-pair"><span class="label">${t("Последняя", "Latest")}</span><span class="value" style="color:var(--gold)">${esc(latestLabel || "—")}</span></div>
+                  <div class="side-pair"><span class="label">${t("Тип", "Type")}</span><span class="value">${esc(releaseLabel(file?.releaseType))}</span></div>
+                  <div class="side-pair"><span class="label">${t("Размер", "Size")}</span><span class="value">${formatBytes(file?.fileLength)}</span></div>
+                  <div class="side-pair"><span class="label">${t("Файл", "File")}</span><span class="value" title="${esc(file?.fileName || "")}">${esc(file?.fileName || "—")}</span></div>
                 </div>
               </div>
 
               ${gameVersions.length ? `<div class="side-block">
-                <div class="side-block-title">Версии игры</div>
+                <div class="side-block-title">${t("Версии игры", "Game versions")}</div>
                 <div class="game-version-list">${gameVersionChips}</div>
                 <div class="game-version-note">${localVersion
                   ? currentVersionAvailable
-                    ? "Зелёным отмечена ваша версия."
-                    : "Для вашей версии игры файла нет."
-                  : "Версия игры не определена."}</div>
+                    ? t("Зелёным отмечена ваша версия.", "Your version is highlighted in green.")
+                    : t("Для вашей версии игры файла нет.", "There is no file for your game version.")
+                  : t("Версия игры не определена.", "The game version was not detected.")}</div>
               </div>` : ""}
 
               ${categories.length ? `<div class="side-block">
-                <div class="side-block-title">Категории</div>
+                <div class="side-block-title">${t("Категории", "Categories")}</div>
                 <div class="side-chips">${categories.map((category) => `<span class="category-chip">${esc(category)}</span>`).join("")}</div>
               </div>` : ""}
 
               ${screenshotThumbs ? `<div class="side-block">
-                <div class="side-block-title">Скриншоты <span class="side-block-count">${gallery.length}</span></div>
+                <div class="side-block-title">${t("Скриншоты", "Screenshots")} <span class="side-block-count">${gallery.length}</span></div>
                 <div class="screenshot-grid">${screenshotThumbs}</div>
-                <div class="screenshot-hint">${icon("image")} Нажмите, чтобы открыть галерею</div>
+                <div class="screenshot-hint">${icon("image")} ${t("Нажмите, чтобы открыть галерею", "Click to open the gallery")}</div>
               </div>` : ""}
 
-              ${external ? `<button class="btn btn-secondary btn-sm" type="button" data-action="open-url" data-url="${esc(external)}">${icon("external")} Страница на CurseForge</button>` : ""}
+              ${external ? `<button class="btn btn-secondary btn-sm" type="button" data-action="open-url" data-url="${esc(external)}">${icon("external")} ${t("Страница на CurseForge", "CurseForge page")}</button>` : ""}
             </aside>
           </div>
         </div>
@@ -1711,7 +1881,9 @@
 
   function formatDescription(text) {
     const source = String(text || "").replace(/\r/g, "");
-    if (!source.trim()) return '<div class="description-empty">Описание не опубликовано.</div>';
+    if (!source.trim()) {
+      return `<div class="description-empty">${t("Описание не опубликовано.", "No description published.")}</div>`;
+    }
     const lines = source.split("\n");
     const output = [];
     let paragraph = [];
@@ -1759,7 +1931,7 @@
             return `<button class="install-option ${selected ? "selected" : ""}" type="button" data-action="select-install" data-index="${index}" ${busy ? "disabled" : ""}>
               <span class="install-option-icon">${icon("gamepad")}</span>
               <span class="install-option-copy">
-                <span class="install-option-title">${esc(install.displayName || install.flavorLabel)}${selected ? '<span class="badge badge-success">Выбрано</span>' : ""}</span>
+                <span class="install-option-title">${esc(install.displayName || install.flavorLabel)}${selected ? `<span class="badge badge-success">${t("Выбрано", "Selected")}</span>` : ""}</span>
                 <span class="install-option-path">${esc(install.addonsDir)}</span>
               </span>
               <span class="install-option-meta">${esc(install.version || "—")}<br />Interface ${esc(install.interface || "—")}</span>
@@ -1767,20 +1939,20 @@
             </button>`;
           })
           .join("")
-      : `<div class="install-modal-empty">Установки не найдены.<br />Укажите папку World of Warcraft или обновите список.</div>`;
+      : `<div class="install-modal-empty">${t("Установки не найдены.", "No installations found.")}<br />${t("Укажите папку World of Warcraft или обновите список.", "Select the World of Warcraft folder or refresh the list.")}</div>`;
 
     return `<div class="modal-backdrop" data-action="install-backdrop">
-      <div class="modal modal-small" role="dialog" aria-modal="true" aria-label="Выбор установки World of Warcraft">
+      <div class="modal modal-small" role="dialog" aria-modal="true" aria-label="${t("Выбор установки World of Warcraft", "Select a World of Warcraft installation")}">
         <div class="modal-header">
-          <div><h2>Установка World of Warcraft</h2><p>Выберите версию игры, с которой будет работать Addon Forge.</p></div>
+          <div><h2>${t("Установка World of Warcraft", "World of Warcraft installation")}</h2><p>${t("Выберите версию игры, с которой будет работать Addon Forge.", "Choose the game version Addon Forge should use.")}</p></div>
           ${modalCloseButton("close-install-modal")}
         </div>
         <div class="install-options">${options}</div>
         <div class="modal-footer split">
-          <div class="footer-left">${state.installs.length ? `Найдено: ${state.installs.length}` : "Поддерживаются Retail, Classic, Classic Era и Forever"}</div>
+          <div class="footer-left">${state.installs.length ? t("Найдено: {count}", "Found: {count}", { count: state.installs.length }) : t("Поддерживаются Retail, Classic, Classic Era и Forever", "Retail, Classic, Classic Era, and Forever are supported")}</div>
           <div class="footer-right">
-            <button class="btn btn-secondary" type="button" data-action="rescan-installs" ${busy ? "disabled" : ""}>${icon("search", busy ? "spin" : "")} Обновить список</button>
-            <button class="btn btn-primary" type="button" data-action="choose-folder" ${busy ? "disabled" : ""}>${icon("folder")} Указать папку</button>
+            <button class="btn btn-secondary" type="button" data-action="rescan-installs" ${busy ? "disabled" : ""}>${icon("search", busy ? "spin" : "")} ${t("Обновить список", "Refresh list")}</button>
+            <button class="btn btn-primary" type="button" data-action="choose-folder" ${busy ? "disabled" : ""}>${icon("folder")} ${t("Указать папку", "Choose folder")}</button>
           </div>
         </div>
       </div>
@@ -1793,24 +1965,24 @@
     if (confirm.kind !== "remove-addon") return "";
     const busy = Boolean(confirm.busy);
     return `<div class="modal-backdrop" data-action="confirm-backdrop">
-      <div class="modal modal-small confirm-modal" role="dialog" aria-modal="true" aria-label="Удаление аддона">
+      <div class="modal modal-small confirm-modal" role="dialog" aria-modal="true" aria-label="${t("Удаление аддона", "Remove addon")}">
         <div class="modal-header">
-          <div><h2>Удалить аддон?</h2><p>Действие затронет файлы в папке AddOns.</p></div>
-          <button class="modal-close" type="button" data-action="confirm-cancel" aria-label="Закрыть" ${busy ? "disabled" : ""}>${icon("close")}</button>
+          <div><h2>${t("Удалить аддон?", "Remove addon?")}</h2><p>${t("Действие затронет файлы в папке AddOns.", "This will affect files in the AddOns folder.")}</p></div>
+          <button class="modal-close" type="button" data-action="confirm-cancel" aria-label="${t("Закрыть", "Close")}" ${busy ? "disabled" : ""}>${icon("close")}</button>
         </div>
         <div class="confirm-body">
           <div class="confirm-icon">${icon("trash")}</div>
           <div class="confirm-copy">
-            <div class="confirm-title">${esc(confirm.title || "Выбранный аддон")}</div>
-            <p>Папки аддона будут удалены из World of Warcraft.${state.settings.keepBackups ? " Перед удалением будет создана резервная копия." : " Резервная копия создаваться не будет."}</p>
-            ${confirm.error ? `<div class="hint warning">${esc(confirm.error)}</div>` : ""}
+            <div class="confirm-title">${esc(confirm.title || t("Выбранный аддон", "Selected addon"))}</div>
+            <p>${t("Папки аддона будут удалены из World of Warcraft.", "The addon folders will be removed from World of Warcraft.")}${state.settings.keepBackups ? ` ${t("Перед удалением будет создана резервная копия.", "A backup will be created before removal.")}` : ` ${t("Резервная копия создаваться не будет.", "No backup will be created.")}`}</p>
+            ${confirm.error ? `<div class="hint warning">${esc(errorText(confirm.error))}</div>` : ""}
           </div>
         </div>
         <div class="modal-footer split">
-          <div class="footer-left">${state.settings.keepBackups ? "Копия сохранится в локальном хранилище" : "Резервные копии отключены"}</div>
+          <div class="footer-left">${state.settings.keepBackups ? t("Копия сохранится в локальном хранилище", "A copy will be kept in local storage") : t("Резервные копии отключены", "Backups are disabled")}</div>
           <div class="footer-right">
-            <button class="btn btn-secondary" type="button" data-action="confirm-cancel" ${busy ? "disabled" : ""}>Отмена</button>
-            <button class="btn btn-danger" type="button" data-action="confirm-remove-addon" ${busy ? "disabled" : ""}>${busy ? icon("refresh", "spin") : icon("trash")} ${busy ? "Удаление…" : "Удалить"}</button>
+            <button class="btn btn-secondary" type="button" data-action="confirm-cancel" ${busy ? "disabled" : ""}>${t("Отмена", "Cancel")}</button>
+            <button class="btn btn-danger" type="button" data-action="confirm-remove-addon" ${busy ? "disabled" : ""}>${busy ? icon("refresh", "spin") : icon("trash")} ${busy ? t("Удаление…", "Removing…") : t("Удалить", "Remove")}</button>
           </div>
         </div>
       </div>
@@ -1835,20 +2007,20 @@
     let items = "";
     if (menu.installed) {
       items = [
-        contextMenuItem("info", "Подробнее", "context-details"),
-        contextMenuItem("refresh", "Переустановить", "context-reinstall", { disabled: busy }),
+        contextMenuItem("info", t("Подробнее", "Details"), "context-details"),
+        contextMenuItem("refresh", t("Переустановить", "Reinstall"), "context-reinstall", { disabled: busy }),
         '<div class="context-separator"></div>',
-        contextMenuItem("trash", "Удалить", "context-delete", { danger: true, disabled: busy }),
+        contextMenuItem("trash", t("Удалить", "Remove"), "context-delete", { danger: true, disabled: busy }),
       ].join("");
     } else {
       items = [
-        contextMenuItem("download", "Установить", "context-install", { disabled: busy || !menu.latestFile }),
-        contextMenuItem("info", "Подробнее", "context-details"),
+        contextMenuItem("download", t("Установить", "Install"), "context-install", { disabled: busy || !menu.latestFile }),
+        contextMenuItem("info", t("Подробнее", "Details"), "context-details"),
       ].join("");
     }
 
-    root.innerHTML = `<div class="context-menu" role="menu" aria-label="${esc(menu.title || "Действия")}" style="left:0;top:0">
-      <div class="context-title" title="${esc(menu.title || "")}">${esc(menu.title || "Аддон")}</div>
+    root.innerHTML = `<div class="context-menu" role="menu" aria-label="${esc(menu.title || t("Действия", "Actions"))}" style="left:0;top:0">
+      <div class="context-title" title="${esc(menu.title || "")}">${esc(menu.title || t("Аддон", "Addon"))}</div>
       ${items}
     </div>`;
 
@@ -1876,7 +2048,11 @@
     const addon = state.addons.find((item) => item.key === key);
     if (!addon) return;
     if (state.checking || state.installTasks.size > 0 || state.batchActive) {
-      toast("Дождитесь завершения операции", "Удаление недоступно во время проверки или установки.", "info");
+      toast(
+        t("Дождитесь завершения операции", "Wait for the current operation to finish"),
+        t("Удаление недоступно во время проверки или установки.", "Removal is unavailable while checking or installing."),
+        "info",
+      );
       return;
     }
     state.confirm = {
@@ -1908,8 +2084,8 @@
       state.confirm = null;
       render();
       toast(
-        "Аддон удалён",
-        `${result.title || confirm.title} · ${result.removed} ${plural(result.removed, "папка", "папки", "папок")}${result.backupDir ? " · резервная копия создана" : ""}`,
+        t("Аддон удалён", "Addon removed"),
+        `${result.title || confirm.title} · ${tn(result.removed, ["{count} папка", "{count} папки", "{count} папок"], ["{count} folder", "{count} folders"])}${result.backupDir ? ` · ${t("резервная копия создана", "backup created")}` : ""}`,
         "success",
       );
     } catch (error) {
@@ -1918,7 +2094,7 @@
         state.confirm.error = errorText(error);
       }
       render();
-      toast("Не удалось удалить аддон", errorText(error), "danger");
+      toast(t("Не удалось удалить аддон", "Could not remove the addon"), errorText(error), "danger");
     }
   }
 
@@ -1932,29 +2108,29 @@
     const thumbnails = items
       .map(
         (shot, shotIndex) =>
-          `<button class="lightbox-thumb ${shotIndex === index ? "active" : ""}" type="button" data-action="lightbox-select" data-index="${shotIndex}" aria-label="Скриншот ${shotIndex + 1}" aria-current="${shotIndex === index ? "true" : "false"}">
+          `<button class="lightbox-thumb ${shotIndex === index ? "active" : ""}" type="button" data-action="lightbox-select" data-index="${shotIndex}" aria-label="${t("Скриншот {number}", "Screenshot {number}", { number: shotIndex + 1 })}" aria-current="${shotIndex === index ? "true" : "false"}">
             <img src="${esc(shot.thumb)}" alt="" loading="lazy" />
           </button>`,
       )
       .join("");
 
-    return `<div class="lightbox" data-action="lightbox-backdrop" role="dialog" aria-modal="true" aria-label="Галерея скриншотов">
+    return `<div class="lightbox" data-action="lightbox-backdrop" role="dialog" aria-modal="true" aria-label="${t("Галерея скриншотов", "Screenshot gallery")}">
       <div class="lightbox-card">
         <div class="lightbox-head">
           <div>
-            <div class="lightbox-kicker">Галерея аддона</div>
-            <div class="lightbox-counter">${index + 1} из ${items.length}</div>
+            <div class="lightbox-kicker">${t("Галерея аддона", "Addon gallery")}</div>
+            <div class="lightbox-counter">${t("{current} of {total}", "{current} of {total}", { current: index + 1, total: items.length })}</div>
           </div>
-          <button class="lightbox-close" type="button" data-action="close-lightbox" aria-label="Закрыть галерею">${icon("close")}</button>
+          <button class="lightbox-close" type="button" data-action="close-lightbox" aria-label="${t("Закрыть галерею", "Close gallery")}">${icon("close")}</button>
         </div>
         <div class="lightbox-stage">
-          ${multiple ? `<button class="lightbox-nav prev" type="button" data-action="lightbox-prev" aria-label="Предыдущий скриншот">${icon("arrowLeft")}</button>` : ""}
+          ${multiple ? `<button class="lightbox-nav prev" type="button" data-action="lightbox-prev" aria-label="${t("Предыдущий скриншот", "Previous screenshot")}">${icon("arrowLeft")}</button>` : ""}
           <img src="${esc(current.full)}" alt="${esc(current.title)}" />
-          ${multiple ? `<button class="lightbox-nav next" type="button" data-action="lightbox-next" aria-label="Следующий скриншот">${icon("arrowRight")}</button>` : ""}
+          ${multiple ? `<button class="lightbox-nav next" type="button" data-action="lightbox-next" aria-label="${t("Следующий скриншот", "Next screenshot")}">${icon("arrowRight")}</button>` : ""}
         </div>
         <div class="lightbox-caption">
           <span class="lightbox-title">${esc(current.title)}</span>
-          <span class="lightbox-hint">← → для навигации · Esc для закрытия</span>
+          <span class="lightbox-hint">${t("← → для навигации · Esc для закрытия", "← → to navigate · Esc to close")}</span>
         </div>
         ${multiple ? `<div class="lightbox-thumbs">${thumbnails}</div>` : ""}
       </div>
@@ -2008,7 +2184,12 @@
     if (state.details) state.details.activeShot = current.full;
 
     const counter = root.querySelector(".lightbox-counter");
-    if (counter) counter.textContent = `${index + 1} из ${items.length}`;
+    if (counter) {
+      counter.textContent = t("{current} of {total}", "{current} of {total}", {
+        current: index + 1,
+        total: items.length,
+      });
+    }
     const title = root.querySelector(".lightbox-title");
     if (title) title.textContent = current.title;
 
@@ -2041,6 +2222,28 @@
     applyDetailsShotPreview();
   }
 
+  async function switchLanguage(language) {
+    if (!["ru", "en"].includes(language) || language === getLocale()) return;
+    const main = $("main");
+    const scrollTop = main?.scrollTop || 0;
+    setLocale(language);
+    state.settings.language = language;
+    state.settingsDraft.language = language;
+    render();
+    if (main) main.scrollTop = scrollTop;
+    if (!invoke) return;
+    try {
+      await invoke("set_language", { language });
+    } catch (error) {
+      console.error("Failed to persist the interface language", error);
+      toast(
+        t("Не удалось сохранить язык", "Could not save the language preference"),
+        errorText(error),
+        "danger",
+      );
+    }
+  }
+
   function setPage(page) {
     if (!["installed", "catalog", "settings"].includes(page)) return;
     const changed = state.page !== page;
@@ -2065,7 +2268,13 @@
     const { silent = false } = options;
     if (state.checking) return;
     if (!state.install) {
-      if (!silent) toast("Сначала выберите установку игры", "Настройки → Установка World of Warcraft.", "warning");
+      if (!silent) {
+        toast(
+          t("Сначала выберите установку игры", "Select a game installation first"),
+          t("Настройки → Установка World of Warcraft.", "Settings → World of Warcraft installation."),
+          "warning",
+        );
+      }
       return;
     }
     state.checking = true;
@@ -2085,7 +2294,7 @@
       state.checkProgress = null;
       settlePendingChecks();
       render();
-      toast("Не удалось проверить обновления", errorText(error), "danger");
+      toast(t("Не удалось проверить обновления", "Could not check for updates"), errorText(error), "danger");
     }
   }
 
@@ -2095,24 +2304,24 @@
     const failed = Number(summary.failed || 0);
     if (updates > 0) {
       toast(
-        `Найдено ${updates} ${plural(updates, "обновление", "обновления", "обновлений")}`,
-        `Проверено ${checked} ${plural(checked, "аддон", "аддона", "аддонов")}${failed ? ` · ошибок: ${failed}` : ""}.`,
+        tn(updates, ["Найдено {count} обновление", "Найдено {count} обновления", "Найдено {count} обновлений"], ["{count} update found", "{count} updates found"]),
+        `${tn(checked, ["Проверено {count} аддон", "Проверено {count} аддона", "Проверено {count} аддонов"], ["{count} addon checked", "{count} addons checked"])}${failed ? ` · ${t("ошибок: {count}", "errors: {count}", { count: failed })}` : ""}.`,
         "warning",
       );
       return;
     }
     if (failed > 0) {
       toast(
-        "Проверка завершена с ошибками",
-        `Не удалось проверить ${failed} из ${checked}. Подробности — в статусе аддонов.`,
+        t("Проверка завершена с ошибками", "Update check completed with errors"),
+        t("Не удалось проверить {failed} из {checked}. Подробности — в статусе аддонов.", "Could not check {failed} of {checked}. See the addon statuses for details.", { failed, checked }),
         "danger",
       );
       return;
     }
     if (!silent) {
       toast(
-        "Все аддоны актуальны",
-        `Проверено ${checked} ${plural(checked, "аддон", "аддона", "аддонов")} — обновлений нет.`,
+        t("Все аддоны актуальны", "All addons are up to date"),
+        `${tn(checked, ["Проверен {count} аддон", "Проверено {count} аддона", "Проверено {count} аддонов"], ["{count} addon checked", "{count} addons checked"])} — ${t("обновлений нет", "no updates found")}.`,
         "success",
       );
     }
@@ -2125,7 +2334,7 @@
       ...(previous || {}),
       addonKey: key,
       status: "checking",
-      statusLabel: "Проверка…",
+      statusLabel: t("Проверка…", "Checking…"),
       tone: "info",
       updateAvailable: false,
       pulsing: true,
@@ -2136,12 +2345,18 @@
       state.checks.set(key, result);
       render();
       if (result.status === "error") {
-        toast("Не удалось проверить аддон", result.error || result.statusLabel, "danger");
+        toast(
+          t("Не удалось проверить аддон", "Could not check the addon"),
+          result.error
+            ? errorText(result.error)
+            : statusLabel(result.status, result.statusLabel),
+          "danger",
+        );
       }
     } catch (error) {
       if (previous) state.checks.set(key, previous);
       render();
-      toast("Не удалось проверить аддон", errorText(error), "danger");
+      toast(t("Не удалось проверить аддон", "Could not check the addon"), errorText(error), "danger");
     }
   }
 
@@ -2149,15 +2364,27 @@
     const reinstall = Boolean(options.reinstall);
     if (!state.install) {
       openInstallModal();
-      toast("Сначала выберите установку игры", "Без неё нельзя определить подходящую версию файла.", "warning");
+      toast(
+        t("Сначала выберите установку игры", "Select a game installation first"),
+        t("Без неё нельзя определить подходящую версию файла.", "Without it, the correct file version cannot be determined."),
+        "warning",
+      );
       return;
     }
     if (state.checking) {
-      toast("Дождитесь проверки обновлений", "Установка во время проверки может изменить список аддонов.", "info");
+      toast(
+        t("Дождитесь проверки обновлений", "Wait for the update check to finish"),
+        t("Установка во время проверки может изменить список аддонов.", "Installing during an update check may change the addon list."),
+        "info",
+      );
       return;
     }
     if (state.installTasks.size || state.batchActive) {
-      toast("Установка уже выполняется", "Дождитесь завершения текущей операции.", "info");
+      toast(
+        t("Установка уже выполняется", "An installation is already in progress"),
+        t("Дождитесь завершения текущей операции.", "Wait for the current operation to finish."),
+        "info",
+      );
       return;
     }
     try {
@@ -2168,7 +2395,7 @@
         ...(previous || {}),
         addonKey: result.key,
         status: "upToDate",
-        statusLabel: "Актуально",
+        statusLabel: t("Актуально", "Up to date"),
         tone: "success",
         updateAvailable: false,
         error: null,
@@ -2178,12 +2405,22 @@
       if (key !== result.key) state.checks.set(key, upToDate);
       render();
       toast(
-        reinstall ? "Аддон переустановлен" : result.isUpdate ? "Аддон обновлён" : "Аддон установлен",
-        `${result.title} · ${result.version}${result.backupDir ? " · резервная копия создана" : ""}`,
+        reinstall
+          ? t("Аддон переустановлен", "Addon reinstalled")
+          : result.isUpdate
+            ? t("Аддон обновлён", "Addon updated")
+            : t("Аддон установлен", "Addon installed"),
+        `${result.title} · ${result.version}${result.backupDir ? ` · ${t("резервная копия создана", "backup created")}` : ""}`,
         "success",
       );
     } catch (error) {
-      toast(reinstall ? "Не удалось переустановить аддон" : "Не удалось обновить аддон", errorText(error), "danger");
+      toast(
+        reinstall
+          ? t("Не удалось переустановить аддон", "Could not reinstall the addon")
+          : t("Не удалось обновить аддон", "Could not update the addon"),
+        errorText(error),
+        "danger",
+      );
     } finally {
       state.installTasks.delete(key);
       render();
@@ -2193,12 +2430,20 @@
   async function updateAll() {
     if (!state.install) return;
     if (state.checking || state.installTasks.size || state.batchActive) {
-      toast("Дождитесь завершения текущей операции", "Проверка или установка уже выполняется.", "info");
+      toast(
+        t("Дождитесь завершения текущей операции", "Wait for the current operation to finish"),
+        t("Проверка или установка уже выполняется.", "A check or installation is already in progress."),
+        "info",
+      );
       return;
     }
     const keys = state.addons.filter((addon) => statusFor(addon).updateAvailable).map((addon) => addon.key);
     if (!keys.length) {
-      toast("Обновлений нет", "Все установленные аддоны актуальны.", "success");
+      toast(
+        t("Обновлений нет", "No updates available"),
+        t("Все установленные аддоны актуальны.", "All installed addons are up to date."),
+        "success",
+      );
       return;
     }
     state.batchActive = true;
@@ -2208,16 +2453,20 @@
       state.addons = result.addons || state.addons;
       const succeeded = Number(result.succeeded || 0);
       const failed = Number(result.failed || 0);
-      const lines = Array.isArray(result.errors) ? result.errors.slice(0, 3) : [];
-      const message = `Обновлено ${succeeded} из ${Number(result.total || keys.length)}.${lines.length ? `\n${lines.join("\n")}` : ""}`;
+      const lines = Array.isArray(result.errors)
+        ? result.errors.slice(0, 3).map((line) => errorText(line))
+        : [];
+      const message = `${t("Обновлено {succeeded} из {total}.", "{succeeded} of {total} updated.", { succeeded, total: Number(result.total || keys.length) })}${lines.length ? `\n${lines.join("\n")}` : ""}`;
       toast(
-        failed ? "Обновление завершено с ошибками" : "Обновление завершено",
+        failed
+          ? t("Обновление завершено с ошибками", "Update completed with errors")
+          : t("Обновление завершено", "Update completed"),
         message,
         failed ? "warning" : "success",
         7000,
       );
     } catch (error) {
-      toast("Не удалось обновить аддоны", errorText(error), "danger");
+      toast(t("Не удалось обновить аддоны", "Could not update addons"), errorText(error), "danger");
     } finally {
       state.batchActive = false;
       state.installTasks.clear();
@@ -2228,15 +2477,27 @@
   async function installCatalog(modId, title, latestFile = null) {
     if (!state.install) {
       openInstallModal();
-      toast("Сначала выберите установку игры", "Установка аддона требует известной версии игры.", "warning");
+      toast(
+        t("Сначала выберите установку игры", "Select a game installation first"),
+        t("Установка аддона требует известной версии игры.", "Installing an addon requires a known game version."),
+        "warning",
+      );
       return;
     }
     if (state.checking) {
-      toast("Дождитесь проверки обновлений", "Установка во время проверки может изменить список аддонов.", "info");
+      toast(
+        t("Дождитесь проверки обновлений", "Wait for the update check to finish"),
+        t("Установка во время проверки может изменить список аддонов.", "Installing during an update check may change the addon list."),
+        "info",
+      );
       return;
     }
     if (state.installTasks.size || state.batchActive) {
-      toast("Установка уже выполняется", "Дождитесь завершения текущей операции.", "info");
+      toast(
+        t("Установка уже выполняется", "An installation is already in progress"),
+        t("Дождитесь завершения текущей операции.", "Wait for the current operation to finish."),
+        "info",
+      );
       return;
     }
     try {
@@ -2251,7 +2512,7 @@
         modName: result.title,
         latest: latestFile || null,
         status: "upToDate",
-        statusLabel: "Актуально",
+        statusLabel: t("Актуально", "Up to date"),
         tone: "success",
         updateAvailable: false,
         error: null,
@@ -2260,12 +2521,14 @@
       state.installTasks.clear();
       render();
       toast(
-        result.isUpdate ? "Аддон обновлён" : "Аддон установлен",
-        `${result.title} · ${result.version}${result.backupDir ? " · резервная копия создана" : ""}`,
+        result.isUpdate
+          ? t("Аддон обновлён", "Addon updated")
+          : t("Аддон установлен", "Addon installed"),
+        `${result.title} · ${result.version}${result.backupDir ? ` · ${t("резервная копия создана", "backup created")}` : ""}`,
         "success",
       );
     } catch (error) {
-      toast("Не удалось установить аддон", errorText(error), "danger");
+      toast(t("Не удалось установить аддон", "Could not install the addon"), errorText(error), "danger");
     } finally {
       state.installTasks.clear();
       render();
@@ -2371,7 +2634,7 @@
       loading: true,
       key,
       modId: check?.modId || addon?.curseId || null,
-      title: addon?.title || "Аддон",
+      title: addon?.title || t("Аддон", "Addon"),
       data: null,
       error: null,
       activeShot: null,
@@ -2482,7 +2745,11 @@
   async function selectInstall(index) {
     if (state.installModalBusy) return;
     if (state.checking) {
-      toast("Дождитесь проверки обновлений", "Смена установки во время проверки может смешать результаты.", "info");
+      toast(
+        t("Дождитесь проверки обновлений", "Wait for the update check to finish"),
+        t("Смена установки во время проверки может смешать результаты.", "Changing the installation during a check may mix results."),
+        "info",
+      );
       return;
     }
     if (state.selectedInstall === index) {
@@ -2496,37 +2763,41 @@
       const data = await invoke("select_install", { index: Number(index) });
       applySelection(data);
       toast(
-        "Установка выбрана",
+        t("Установка выбрана", "Installation selected"),
         data.install ? `${data.install.displayName} · ${data.install.version}` : "",
         "success",
       );
     } catch (error) {
       state.installModalBusy = false;
       render();
-      toast("Не удалось выбрать установку", errorText(error), "danger");
+      toast(t("Не удалось выбрать установку", "Could not select the installation"), errorText(error), "danger");
     }
   }
 
   async function chooseFolder() {
     if (state.installModalBusy) return;
     if (state.checking) {
-      toast("Дождитесь проверки обновлений", "После проверки можно выбрать другую папку игры.", "info");
+      toast(
+        t("Дождитесь проверки обновлений", "Wait for the update check to finish"),
+        t("После проверки можно выбрать другую папку игры.", "You can choose another game folder after the check."),
+        "info",
+      );
       return;
     }
     state.installModalBusy = true;
     render();
     try {
-      const path = await invoke("pick_wow_folder");
+      const path = await invoke("pick_wow_folder", { language: getLocale() });
       if (!path) return;
       const data = await invoke("add_install_path", { path });
       applySelection(data);
       toast(
-        "Папка добавлена",
+        t("Папка добавлена", "Folder added"),
         data.install ? `${data.install.displayName} · ${data.install.version}` : "",
         "success",
       );
     } catch (error) {
-      toast("Не удалось добавить папку", errorText(error), "danger");
+      toast(t("Не удалось добавить папку", "Could not add the folder"), errorText(error), "danger");
     } finally {
       state.installModalBusy = false;
       render();
@@ -2536,7 +2807,11 @@
   async function rescanInstalls() {
     if (state.installModalBusy) return;
     if (state.checking) {
-      toast("Дождитесь проверки обновлений", "Повторный поиск установки остановит текущую сверку.", "info");
+      toast(
+        t("Дождитесь проверки обновлений", "Wait for the update check to finish"),
+        t("Повторный поиск установки остановит текущую сверку.", "Searching again will stop the current check."),
+        "info",
+      );
       return;
     }
     state.installModalBusy = true;
@@ -2544,9 +2819,15 @@
     try {
       const data = await invoke("bootstrap");
       applyBootstrap(data, { autoCheck: true, keepModal: state.installModal });
-      toast("Список установок обновлён", data.install ? `Выбрано: ${data.install.displayName}` : "Установки не найдены", data.install ? "success" : "info");
+      toast(
+        t("Список установок обновлён", "Installation list refreshed"),
+        data.install
+          ? t("Выбрано: {name}", "Selected: {name}", { name: data.install.displayName })
+          : t("Установки не найдены", "No installations found"),
+        data.install ? "success" : "info",
+      );
     } catch (error) {
-      toast("Не удалось обновить список", errorText(error), "danger");
+      toast(t("Не удалось обновить список", "Could not refresh the list"), errorText(error), "danger");
     } finally {
       state.installModalBusy = false;
       render();
@@ -2555,7 +2836,11 @@
 
   async function refreshAddons() {
     if (!state.install) {
-      toast("Установка не выбрана", "Сначала найдите World of Warcraft.", "warning");
+      toast(
+        t("Установка не выбрана", "No installation selected"),
+        t("Сначала найдите World of Warcraft.", "Find World of Warcraft first."),
+        "warning",
+      );
       return;
     }
     try {
@@ -2565,9 +2850,13 @@
       state.install = data.install || state.install;
       state.addons = data.addons || state.addons;
       render();
-      toast("Список аддонов обновлён", `Найдено: ${state.addons.length}.`, "success");
+      toast(
+        t("Список аддонов обновлён", "Addon list refreshed"),
+        t("Найдено: {count}.", "Found: {count}.", { count: state.addons.length }),
+        "success",
+      );
     } catch (error) {
-      toast("Не удалось обновить список", errorText(error), "danger");
+      toast(t("Не удалось обновить список", "Could not refresh the list"), errorText(error), "danger");
     }
   }
 
@@ -2575,7 +2864,7 @@
     try {
       await invoke("open_storage", { kind });
     } catch (error) {
-      toast("Не удалось открыть папку", errorText(error), "danger");
+      toast(t("Не удалось открыть папку", "Could not open the folder"), errorText(error), "danger");
     }
   }
 
@@ -2585,7 +2874,7 @@
     try {
       await invoke("open_external", { url: safe });
     } catch (error) {
-      toast("Не удалось открыть ссылку", errorText(error), "danger");
+      toast(t("Не удалось открыть ссылку", "Could not open the link"), errorText(error), "danger");
     }
   }
 
@@ -2606,7 +2895,7 @@
       render();
       if (successMessage) toast(successMessage, "", "success");
     } catch (error) {
-      toast("Не удалось сохранить настройки", errorText(error), "danger");
+      toast(t("Не удалось сохранить настройки", "Could not save settings"), errorText(error), "danger");
     }
   }
 
@@ -2621,7 +2910,7 @@
 
   function saveApiKey() {
     const key = String(state.settingsDraft.apiKey || "").trim();
-    persistSettings({ apiKey: key }, "Ключ сохранён");
+    persistSettings({ apiKey: key }, t("Ключ сохранён", "Key saved"));
   }
 
   function onContextMenu(event) {
@@ -2862,9 +3151,12 @@
         renderToasts();
         break;
       }
+      case "set-language":
+        switchLanguage(actionEl.dataset.language);
+        break;
       case "retry-bootstrap":
         showBoot();
-        setBootText("Повторный поиск World of Warcraft…");
+        setBootText(t("Повторный поиск World of Warcraft…", "Searching for World of Warcraft again…"));
         loadBootstrap();
         break;
       default:
@@ -2997,8 +3289,10 @@
   function init() {
     if (!invoke) {
       state.ready = true;
-      state.fatal =
-        "Tauri API недоступен. Запустите приложение через Tauri, а не открывайте index.html в браузере.";
+      state.fatal = t(
+        "Tauri API недоступен. Запустите приложение через Tauri, а не открывайте index.html в браузере.",
+        "The Tauri API is unavailable. Launch the app through Tauri instead of opening index.html in a browser.",
+      );
       hideBoot();
       render();
       return;

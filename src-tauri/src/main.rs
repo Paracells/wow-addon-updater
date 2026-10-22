@@ -32,6 +32,7 @@ fn main() {
             commands::installed_details,
             commands::install_mod,
             commands::update_addon,
+            commands::remove_addon,
             commands::update_addons,
         ])
         .run(tauri::generate_context!())

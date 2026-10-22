@@ -35,6 +35,9 @@
     lastCheck: null,
     installedQuery: "",
     installedFilter: "all",
+    viewModes: { installed: "list", catalog: "grid" },
+    contextMenu: null,
+    confirm: null,
     catalog: {
       query: "",
       sort: "popular",
@@ -92,7 +95,23 @@
     sparkle: '<path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8Z"></path>',
     monitor:
       '<rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M8 20h8"></path><path d="M12 16v4"></path>',
+    grid: '<rect x="3" y="3" width="7" height="7" rx="1.4"></rect><rect x="14" y="3" width="7" height="7" rx="1.4"></rect><rect x="3" y="14" width="7" height="7" rx="1.4"></rect><rect x="14" y="14" width="7" height="7" rx="1.4"></rect>',
+    list: '<path d="M9 6h11"></path><path d="M9 12h11"></path><path d="M9 18h11"></path><path d="M4 6h.01"></path><path d="M4 12h.01"></path><path d="M4 18h.01"></path>',
+    trash:
+      '<path d="M4 7h16"></path><path d="M9 7V5h6v2"></path><path d="m6 7 1 13h10l1-13"></path><path d="M10 11v5"></path><path d="M14 11v5"></path>',
   };
+
+  try {
+    const savedViews = JSON.parse(localStorage.getItem("addonforge.viewModes") || "{}");
+    if (["list", "grid"].includes(savedViews.installed)) {
+      state.viewModes.installed = savedViews.installed;
+    }
+    if (["list", "grid"].includes(savedViews.catalog)) {
+      state.viewModes.catalog = savedViews.catalog;
+    }
+  } catch (_) {
+    /* localStorage may be unavailable */
+  }
 
   function icon(name, className = "") {
     const body = ICONS[name] || "";
@@ -403,10 +422,13 @@
 
   function installedForRemote(remote) {
     if (!remote) return null;
+    const modId = Number(remote.id);
     const title = String(remote.name || "").trim().toLowerCase();
     const slug = String(remote.slug || "").trim().toLowerCase();
     return (
-      state.addons.find((addon) => Number(addon.curseId) === Number(remote.id)) ||
+      (modId && state.addons.find((addon) => Number(addon.curseId) === modId)) ||
+      (modId &&
+        state.addons.find((addon) => Number(state.checks.get(addon.key)?.modId) === modId)) ||
       (title && state.addons.find((addon) => String(addon.title).trim().toLowerCase() === title)) ||
       (slug &&
         state.addons.find(
@@ -678,10 +700,7 @@
     const detailsBody = modalRoot.querySelector(".details-body");
     if (detailsBody) detailsBody.scrollTop = state.detailsScroll || 0;
 
-    const activeLightboxThumb = modalRoot.querySelector(".lightbox-thumb.active");
-    if (activeLightboxThumb) {
-      activeLightboxThumb.scrollIntoView({ block: "nearest", inline: "center" });
-    }
+    syncLightboxRoot();
 
     if (focusId) {
       const element = document.getElementById(focusId);
@@ -887,6 +906,27 @@
     return renderSettingsPage();
   }
 
+  function viewToggle(view) {
+    const mode = state.viewModes[view];
+    const button = (value, iconName, label) =>
+      `<button type="button" data-action="set-view-mode" data-view="${view}" data-mode="${value}" class="${mode === value ? "active" : ""}" title="${label}" aria-label="${label}" aria-pressed="${mode === value}">${icon(iconName)}</button>`;
+    return `<div class="segmented view-toggle" role="group" aria-label="Вид списка">
+      ${button("list", "list", "Показать списком")}
+      ${button("grid", "grid", "Показать сеткой")}
+    </div>`;
+  }
+
+  function setViewMode(view, mode) {
+    if (!["installed", "catalog"].includes(view) || !["list", "grid"].includes(mode)) return;
+    state.viewModes[view] = mode;
+    try {
+      localStorage.setItem("addonforge.viewModes", JSON.stringify(state.viewModes));
+    } catch (_) {
+      /* localStorage may be unavailable */
+    }
+    render();
+  }
+
   function renderInstalledPage() {
     if (!state.install) return renderNoInstall();
     const counts = computeCounts();
@@ -944,9 +984,16 @@
           <button type="button" data-action="filter-installed" data-filter="updates" class="${state.installedFilter === "updates" ? "active" : ""}">Обновления${counts.updates ? ` · ${counts.updates}` : ""}</button>
           <button type="button" data-action="filter-installed" data-filter="attention" class="${state.installedFilter === "attention" ? "active" : ""}">Проблемы${counts.attention ? ` · ${counts.attention}` : ""}</button>
         </div>
+        ${viewToggle("installed")}
         <div class="toolbar-note">${esc(note)}</div>
       </div>
-      ${filtered.length ? `<div class="addon-list">${filtered.map(renderAddonRow).join("")}</div>` : renderInstalledEmpty()}`;
+      ${
+        filtered.length
+          ? state.viewModes.installed === "grid"
+            ? `<div class="installed-grid">${filtered.map(renderInstalledCard).join("")}</div>`
+            : `<div class="addon-list">${filtered.map(renderAddonRow).join("")}</div>`
+          : renderInstalledEmpty()
+      }`;
   }
 
   function renderCheckCard() {
@@ -999,6 +1046,61 @@
     </div>`;
   }
 
+  function addonPrimaryAction(addon, status, task) {
+    if (task) {
+      return `<button class="btn btn-secondary btn-sm" type="button" disabled>${icon("refresh", "spin")} В работе</button>`;
+    }
+    if (status.updateAvailable) {
+      return `<button class="btn btn-primary btn-sm" type="button" data-action="update-addon" data-key="${esc(addon.key)}">${icon("download")} Обновить</button>`;
+    }
+    if (["unknown", "error", "unresolved", "noCompatible"].includes(status.status)) {
+      return `<button class="btn btn-secondary btn-sm" type="button" data-action="check-addon" data-key="${esc(addon.key)}">${icon("refresh")} Проверить</button>`;
+    }
+    return "";
+  }
+
+  function addonDetailsButton(addon, iconOnly = false) {
+    return `<button class="btn btn-ghost ${iconOnly ? "btn-icon" : "btn-sm"}" type="button" data-action="details-installed" data-key="${esc(addon.key)}" title="Подробнее об аддоне">${icon("info")}${iconOnly ? "" : " Детали"}</button>`;
+  }
+
+  function renderInstalledCard(addon) {
+    const status = statusFor(addon);
+    const task = taskFor(addon.key);
+    const latest = status.latest
+      ? fileVersionLabel(status.modName || addon.title, status.latest)
+      : "";
+    const folders = addon.folders || [];
+    const version = addon.displayVersion || addon.version || "—";
+    const folderNames = folders.slice(0, 2).join(" · ");
+    const extraFolders = folders.length > 2 ? ` +${folders.length - 2}` : "";
+    return `<article class="addon-card installed-card" data-context-kind="installed" data-addon-key="${esc(addon.key)}" data-addon-title="${esc(addon.title)}">
+      <div class="card-top">
+        ${addonAvatar(addon)}
+        <div class="card-title-wrap">
+          <div class="installed-card-title" title="${esc(addon.title)}">${esc(addon.title)}</div>
+          <div class="card-author">${esc(addon.author || "Автор не указан")}</div>
+          <div class="card-badges">
+            ${statusPill(status, status.error || "")}
+            ${version ? `<span class="card-version">${esc(version)}</span>` : ""}
+          </div>
+        </div>
+      </div>
+      <div class="installed-card-meta">
+        <span>${icon("folder")} ${esc(folderNames || addon.primaryFolder || "")}${esc(extraFolders)}</span>
+        ${addon.interface ? `<span>${icon("monitor")} Interface ${esc(addon.interface)}</span>` : ""}
+      </div>
+      <div class="card-footer">
+        <div class="card-stats">
+          ${status.updateAvailable && latest ? `<span>${icon("arrowUp")} Доступно: ${esc(latest)}</span>` : `<span>${folders.length} ${plural(folders.length, "папка", "папки", "папок")}</span>`}
+        </div>
+        <div class="card-actions">
+          ${addonPrimaryAction(addon, status, task)}
+          ${addonDetailsButton(addon, true)}
+        </div>
+      </div>
+    </article>`;
+  }
+
   function renderAddonRow(addon) {
     const status = statusFor(addon);
     const task = taskFor(addon.key);
@@ -1026,7 +1128,7 @@
       primaryAction = `<button class="btn btn-secondary btn-sm" type="button" data-action="check-addon" data-key="${esc(addon.key)}">${icon("refresh")} Проверить</button>`;
     }
 
-    return `<div class="addon-row">
+    return `<div class="addon-row" data-context-kind="installed" data-addon-key="${esc(addon.key)}" data-addon-title="${esc(addon.title)}">
       ${addonAvatar(addon)}
       <div class="addon-main">
         <div class="addon-title-line">
@@ -1080,6 +1182,7 @@
           ${sortOptions.map(([value, label]) => `<option value="${value}" ${catalog.sort === value ? "selected" : ""}>${label}</option>`).join("")}
         </select>
       </div>
+      ${viewToggle("catalog")}
       <button class="btn btn-secondary btn-icon" type="button" data-action="catalog-refresh" title="Обновить каталог">${icon("refresh", catalog.loading ? "spin" : "")}</button>
     </div>`;
 
@@ -1089,6 +1192,10 @@
       ${!state.install ? '<span>· установка не выбрана, фильтр по версии игры отключён</span>' : ""}
     </div>`;
 
+    const listMode = state.viewModes.catalog === "list";
+    const containerClass = listMode ? "catalog-list" : "catalog-grid";
+    const renderItem = listMode ? renderCatalogRow : renderCatalogCard;
+    const renderSkeleton = listMode ? renderCatalogListSkeleton : renderCatalogSkeleton;
     let content = "";
     if (catalog.error) {
       content = `<div class="error-panel">
@@ -1097,12 +1204,12 @@
         <button class="btn btn-secondary btn-sm" type="button" data-action="catalog-refresh">${icon("refresh")} Повторить</button>
       </div>`;
       if (catalog.results.length) {
-        content += `<div class="catalog-grid" style="margin-top:12px">${catalog.results.map(renderCatalogCard).join("")}</div>`;
+        content += `<div class="${containerClass}" style="margin-top:12px">${catalog.results.map(renderItem).join("")}</div>`;
       }
     } else if (catalog.loading && !catalog.results.length) {
-      content = `<div class="catalog-grid">${Array.from({ length: 6 }, renderCatalogSkeleton).join("")}</div>`;
+      content = `<div class="${containerClass}">${Array.from({ length: 6 }, renderSkeleton).join("")}</div>`;
     } else if (!catalog.loaded) {
-      content = `<div class="catalog-grid">${Array.from({ length: 4 }, renderCatalogSkeleton).join("")}</div>`;
+      content = `<div class="${containerClass}">${Array.from({ length: 4 }, renderSkeleton).join("")}</div>`;
     } else if (!catalog.results.length) {
       content = `<div class="empty-state">
         <div class="empty-emblem">${icon("search")}</div>
@@ -1113,7 +1220,7 @@
         </div>
       </div>`;
     } else {
-      content = `<div class="catalog-grid">${catalog.results.map(renderCatalogCard).join("")}</div>`;
+      content = `<div class="${containerClass}">${catalog.results.map(renderItem).join("")}</div>`;
       if (catalog.hasMore) {
         content += `<div class="load-more-row"><button class="btn btn-secondary" type="button" data-action="catalog-more" ${catalog.loading ? "disabled" : ""}>${icon("download")} ${catalog.loading ? "Загрузка…" : "Показать ещё"}</button></div>`;
       }
@@ -1135,6 +1242,68 @@
       <div class="skeleton-line body2"></div>
       <div style="margin-top:auto;padding-top:14px"><div class="skeleton-line short" style="width:42%;height:20px"></div></div>
     </div>`;
+  }
+
+  function renderCatalogListSkeleton() {
+    return `<div class="catalog-row skeleton">
+      <div class="skeleton-block"></div>
+      <div class="catalog-row-main">
+        <div class="skeleton-line title"></div>
+        <div class="skeleton-line short"></div>
+        <div class="skeleton-line body" style="margin-top:10px"></div>
+      </div>
+      <div class="catalog-row-meta"><div class="skeleton-line short" style="width:80%"></div></div>
+      <div class="card-actions"><div class="skeleton-line short" style="width:120px;height:31px"></div></div>
+    </div>`;
+  }
+
+  function renderCatalogRow(remote) {
+    const installed = installedForRemote(remote);
+    const check = installed ? state.checks.get(installed.key) : null;
+    const latest = remote.latestFile;
+    const version = fileVersionLabel(remote.name, latest);
+    const logo = safeUrl(remote.logo);
+    const categories = categoryNames(remote, 3);
+    const busy = state.installTasks.size > 0 || state.batchActive;
+    const isUpdate = Boolean(check?.updateAvailable);
+    const summary = String(remote.summary || "").trim() || "Описание не опубликовано.";
+
+    let badge = "";
+    if (installed && isUpdate) badge = '<span class="badge badge-warning">Есть обновление</span>';
+    else if (installed) badge = '<span class="badge badge-success">Установлен</span>';
+
+    let primary = "";
+    if (isUpdate) {
+      primary = `<button class="btn btn-primary" type="button" data-action="update-addon" data-key="${esc(installed.key)}" ${busy ? "disabled" : ""}>${icon("download")} Обновить</button>`;
+    } else if (installed) {
+      primary = `<button class="btn btn-secondary" type="button" data-action="catalog-details" data-mod-id="${Number(remote.id)}" data-title="${esc(remote.name)}">${icon("info")} Подробнее</button>`;
+    } else {
+      primary = `<button class="btn btn-primary" type="button" data-action="catalog-install" data-mod-id="${Number(remote.id)}" data-title="${esc(remote.name)}" ${busy || !latest ? "disabled" : ""} title="${latest ? "Установить последнюю версию" : "Нет файла для вашей версии игры"}">${icon("download")} Установить</button>`;
+    }
+    const detailsButton = !(installed && !isUpdate)
+      ? `<button class="btn btn-ghost btn-icon" type="button" data-action="catalog-details" data-mod-id="${Number(remote.id)}" data-title="${esc(remote.name)}" title="Подробнее">${icon("info")}</button>`
+      : "";
+
+    return `<article class="catalog-row" data-context-kind="catalog" data-mod-id="${Number(remote.id)}" data-title="${esc(remote.name)}">
+      <div class="card-logo-wrap" style="--tone:${avatarTone(remote.slug || remote.name)}">
+        <span>${esc(initials(remote.name))}</span>
+        ${logo ? `<img src="${esc(logo)}" alt="" loading="lazy" />` : ""}
+      </div>
+      <div class="catalog-row-main">
+        <div class="catalog-row-title-line">
+          <button class="card-title" type="button" data-action="catalog-details" data-mod-id="${Number(remote.id)}" data-title="${esc(remote.name)}" title="${esc(remote.name)}">${esc(remote.name)}</button>
+          ${badge}
+          ${version ? `<span class="card-version" title="Последняя версия">${esc(version)}</span>` : ""}
+        </div>
+        <div class="card-author">${esc(authorLine(remote))}</div>
+        <p class="catalog-row-summary">${esc(summary)}</p>
+        ${categories.length ? `<div class="card-categories catalog-row-categories">${categories.map((category) => `<span class="category-chip">${esc(category)}</span>`).join("")}</div>` : ""}
+      </div>
+      <div class="catalog-row-meta">
+        <span class="card-stats"><span>${icon("download")} ${formatNumber(remote.downloadCount)}</span><span>${icon("clock")} ${formatDate(remote.dateModified)}</span></span>
+      </div>
+      <div class="card-actions">${detailsButton}${primary}</div>
+    </article>`;
   }
 
   function renderCatalogCard(remote) {
@@ -1165,7 +1334,7 @@
       ? `<button class="btn btn-ghost btn-icon" type="button" data-action="catalog-details" data-mod-id="${Number(remote.id)}" data-title="${esc(remote.name)}" title="Подробнее">${icon("info")}</button>`
       : "";
 
-    return `<article class="addon-card">
+    return `<article class="addon-card" data-context-kind="catalog" data-mod-id="${Number(remote.id)}" data-title="${esc(remote.name)}">
       <div class="card-top">
         <div class="card-logo-wrap" style="--tone:${avatarTone(remote.slug || remote.name)}">
           <span>${esc(initials(remote.name))}</span>
@@ -1330,7 +1499,7 @@
   }
 
   function renderModals() {
-    return `${renderDetailsModal()}${renderInstallModal()}${renderLightbox()}`;
+    return `${renderDetailsModal()}${renderInstallModal()}${renderConfirmModal()}`;
   }
 
   function modalCloseButton(action = "details-close") {
@@ -1425,18 +1594,15 @@
       .map((version) => {
         const isCurrent = sameGameVersion(version, localVersion);
         const isSupported = supportedVersionKeys.has(String(version).toLowerCase());
-        const classes = ["game-version-chip", isSupported ? "supported" : "missing"];
+        const classes = ["game-version-chip"];
         if (isCurrent) classes.push("current");
-        const marker = isSupported ? icon("check") : icon("info");
-        const tag = isCurrent
-          ? `<span class="version-tag">${isSupported ? "ваша" : "нет файла"}</span>`
-          : "";
+        const tag = isCurrent ? '<span class="version-tag">ваша</span>' : "";
         const title = isCurrent
           ? isSupported
             ? "Ваша версия игры поддерживается"
             : "Для вашей версии игры нет подходящего файла"
           : "Для этой версии игры доступен файл";
-        return `<span class="${classes.join(" ")}" title="${esc(title)}">${marker}${esc(version)}${tag}</span>`;
+        return `<span class="${classes.join(" ")}" title="${esc(title)}">${esc(version)}${tag}</span>`;
       })
       .join("");
     const categories = categoryNames(remote, 6);
@@ -1504,7 +1670,7 @@
                 <div class="game-version-list">${gameVersionChips}</div>
                 <div class="game-version-note">${localVersion
                   ? currentVersionAvailable
-                    ? "Ваша версия выделена золотым."
+                    ? "Зелёным отмечена ваша версия."
                     : "Для вашей версии игры файла нет."
                   : "Версия игры не определена."}</div>
               </div>` : ""}
@@ -1611,6 +1777,141 @@
     </div>`;
   }
 
+  function renderConfirmModal() {
+    const confirm = state.confirm;
+    if (!confirm) return "";
+    if (confirm.kind !== "remove-addon") return "";
+    const busy = Boolean(confirm.busy);
+    return `<div class="modal-backdrop" data-action="confirm-backdrop">
+      <div class="modal modal-small confirm-modal" role="dialog" aria-modal="true" aria-label="Удаление аддона">
+        <div class="modal-header">
+          <div><h2>Удалить аддон?</h2><p>Действие затронет файлы в папке AddOns.</p></div>
+          <button class="modal-close" type="button" data-action="confirm-cancel" aria-label="Закрыть" ${busy ? "disabled" : ""}>${icon("close")}</button>
+        </div>
+        <div class="confirm-body">
+          <div class="confirm-icon">${icon("trash")}</div>
+          <div class="confirm-copy">
+            <div class="confirm-title">${esc(confirm.title || "Выбранный аддон")}</div>
+            <p>Папки аддона будут удалены из World of Warcraft.${state.settings.keepBackups ? " Перед удалением будет создана резервная копия." : " Резервная копия создаваться не будет."}</p>
+            ${confirm.error ? `<div class="hint warning">${esc(confirm.error)}</div>` : ""}
+          </div>
+        </div>
+        <div class="modal-footer split">
+          <div class="footer-left">${state.settings.keepBackups ? "Копия сохранится в локальном хранилище" : "Резервные копии отключены"}</div>
+          <div class="footer-right">
+            <button class="btn btn-secondary" type="button" data-action="confirm-cancel" ${busy ? "disabled" : ""}>Отмена</button>
+            <button class="btn btn-danger" type="button" data-action="confirm-remove-addon" ${busy ? "disabled" : ""}>${busy ? icon("refresh", "spin") : icon("trash")} ${busy ? "Удаление…" : "Удалить"}</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function contextMenuItem(iconName, label, action, options = {}) {
+    const classes = ["context-item", options.danger ? "danger" : ""].filter(Boolean).join(" ");
+    return `<button class="${classes}" type="button" role="menuitem" data-action="${action}" ${options.disabled ? "disabled" : ""}>${icon(iconName)}<span>${esc(label)}</span></button>`;
+  }
+
+  function renderContextMenu() {
+    const root = $("context-menu-root");
+    if (!root) return;
+    const menu = state.contextMenu;
+    if (!menu) {
+      if (root.innerHTML) root.innerHTML = "";
+      return;
+    }
+
+    const busy = state.checking || state.installTasks.size > 0 || state.batchActive;
+    let items = "";
+    if (menu.installed) {
+      items = [
+        contextMenuItem("info", "Подробнее", "context-details"),
+        contextMenuItem("refresh", "Переустановить", "context-reinstall", { disabled: busy }),
+        '<div class="context-separator"></div>',
+        contextMenuItem("trash", "Удалить", "context-delete", { danger: true, disabled: busy }),
+      ].join("");
+    } else {
+      items = [
+        contextMenuItem("download", "Установить", "context-install", { disabled: busy || !menu.latestFile }),
+        contextMenuItem("info", "Подробнее", "context-details"),
+      ].join("");
+    }
+
+    root.innerHTML = `<div class="context-menu" role="menu" aria-label="${esc(menu.title || "Действия")}" style="left:0;top:0">
+      <div class="context-title" title="${esc(menu.title || "")}">${esc(menu.title || "Аддон")}</div>
+      ${items}
+    </div>`;
+
+    const panel = root.firstElementChild;
+    if (!panel) return;
+    const margin = 10;
+    const maxLeft = Math.max(margin, window.innerWidth - panel.offsetWidth - margin);
+    const maxTop = Math.max(margin, window.innerHeight - panel.offsetHeight - margin);
+    panel.style.left = `${Math.min(Math.max(Number(menu.x) || 0, margin), maxLeft)}px`;
+    panel.style.top = `${Math.min(Math.max(Number(menu.y) || 0, margin), maxTop)}px`;
+  }
+
+  function openContextMenu(menu, x, y) {
+    state.contextMenu = { ...menu, x: Number(x) || 0, y: Number(y) || 0 };
+    renderContextMenu();
+  }
+
+  function closeContextMenu() {
+    if (!state.contextMenu && !$("context-menu-root")?.innerHTML) return;
+    state.contextMenu = null;
+    renderContextMenu();
+  }
+
+  function askRemoveAddon(key) {
+    const addon = state.addons.find((item) => item.key === key);
+    if (!addon) return;
+    if (state.checking || state.installTasks.size > 0 || state.batchActive) {
+      toast("Дождитесь завершения операции", "Удаление недоступно во время проверки или установки.", "info");
+      return;
+    }
+    state.confirm = {
+      kind: "remove-addon",
+      key: addon.key,
+      title: addon.title,
+      busy: false,
+      error: null,
+    };
+    render();
+  }
+
+  function closeConfirm() {
+    if (state.confirm?.busy) return;
+    state.confirm = null;
+    render();
+  }
+
+  async function confirmRemoveAddon() {
+    const confirm = state.confirm;
+    if (!confirm || confirm.kind !== "remove-addon" || confirm.busy) return;
+    confirm.busy = true;
+    confirm.error = null;
+    render();
+    try {
+      const result = await invoke("remove_addon", { key: confirm.key });
+      state.addons = result.addons || state.addons;
+      state.checks.delete(confirm.key);
+      state.confirm = null;
+      render();
+      toast(
+        "Аддон удалён",
+        `${result.title || confirm.title} · ${result.removed} ${plural(result.removed, "папка", "папки", "папок")}${result.backupDir ? " · резервная копия создана" : ""}`,
+        "success",
+      );
+    } catch (error) {
+      if (state.confirm) {
+        state.confirm.busy = false;
+        state.confirm.error = errorText(error);
+      }
+      render();
+      toast("Не удалось удалить аддон", errorText(error), "danger");
+    }
+  }
+
   function renderLightbox() {
     if (!state.lightbox) return "";
     const items = galleryItems();
@@ -1642,12 +1943,92 @@
           ${multiple ? `<button class="lightbox-nav next" type="button" data-action="lightbox-next" aria-label="Следующий скриншот">${icon("arrowRight")}</button>` : ""}
         </div>
         <div class="lightbox-caption">
-          <span>${esc(current.title)}</span>
+          <span class="lightbox-title">${esc(current.title)}</span>
           <span class="lightbox-hint">← → для навигации · Esc для закрытия</span>
         </div>
         ${multiple ? `<div class="lightbox-thumbs">${thumbnails}</div>` : ""}
       </div>
     </div>`;
+  }
+
+  function centerLightboxThumb(root) {
+    const strip = root.querySelector(".lightbox-thumbs");
+    const active = root.querySelector(".lightbox-thumb.active");
+    if (!strip || !active) return;
+    strip.scrollLeft = active.offsetLeft - strip.clientWidth / 2 + active.clientWidth / 2;
+  }
+
+  function syncLightboxRoot(force = false) {
+    const root = $("lightbox-root");
+    if (!root) return;
+    if (!state.lightbox || !galleryItems().length) {
+      if (root.innerHTML) root.innerHTML = "";
+      return;
+    }
+    if (force || !root.querySelector(".lightbox")) {
+      root.innerHTML = renderLightbox();
+      centerLightboxThumb(root);
+    }
+  }
+
+  function applyDetailsShotPreview() {
+    if (!state.details) return;
+    const activeShot = safeUrl(state.details.activeShot);
+    const hero = document.querySelector(".details-hero-bg");
+    if (hero) {
+      hero.style.backgroundImage = activeShot ? `url("${cssUrl(activeShot)}")` : "";
+    }
+    const shots = galleryItems();
+    document.querySelectorAll(".details-body .shot-thumb[data-index]").forEach((thumb) => {
+      const shot = shots[Number(thumb.dataset.index)];
+      thumb.classList.toggle("active", Boolean(shot && shot.full === activeShot));
+    });
+  }
+
+  function refreshLightboxDom() {
+    const root = $("lightbox-root");
+    const items = galleryItems();
+    if (!root || !state.lightbox || !items.length) {
+      syncLightboxRoot();
+      return;
+    }
+    const index = Math.min(Math.max(Number(state.lightbox.index) || 0, 0), items.length - 1);
+    state.lightbox = { index };
+    const current = items[index];
+    if (state.details) state.details.activeShot = current.full;
+
+    const counter = root.querySelector(".lightbox-counter");
+    if (counter) counter.textContent = `${index + 1} из ${items.length}`;
+    const title = root.querySelector(".lightbox-title");
+    if (title) title.textContent = current.title;
+
+    const image = root.querySelector(".lightbox-stage img");
+    if (image) {
+      if (image.getAttribute("src") === current.full) {
+        image.alt = current.title;
+      } else {
+        const targetIndex = index;
+        const targetFull = current.full;
+        const fallback = current.thumb;
+        const applyImage = (src) => {
+          if (!state.lightbox || state.lightbox.index !== targetIndex) return;
+          image.src = src;
+          image.alt = current.title;
+        };
+        const preload = new Image();
+        preload.onload = () => applyImage(targetFull);
+        preload.onerror = () => applyImage(fallback);
+        preload.src = targetFull;
+      }
+    }
+
+    root.querySelectorAll(".lightbox-thumb").forEach((thumb) => {
+      const active = Number(thumb.dataset.index) === index;
+      thumb.classList.toggle("active", active);
+      thumb.setAttribute("aria-current", active ? "true" : "false");
+    });
+    centerLightboxThumb(root);
+    applyDetailsShotPreview();
   }
 
   function setPage(page) {
@@ -1658,6 +2039,8 @@
       state.details = null;
       state.lightbox = null;
       state.installModal = false;
+      state.confirm = null;
+      closeContextMenu();
       state.detailsToken += 1;
       const main = $("main");
       if (main) main.scrollTop = 0;
@@ -1752,7 +2135,8 @@
     }
   }
 
-  async function updateAddon(key) {
+  async function updateAddon(key, options = {}) {
+    const reinstall = Boolean(options.reinstall);
     if (!state.install) {
       openInstallModal();
       toast("Сначала выберите установку игры", "Без неё нельзя определить подходящую версию файла.", "warning");
@@ -1784,12 +2168,12 @@
       if (key !== result.key) state.checks.set(key, upToDate);
       render();
       toast(
-        result.isUpdate ? "Аддон обновлён" : "Аддон установлен",
+        reinstall ? "Аддон переустановлен" : result.isUpdate ? "Аддон обновлён" : "Аддон установлен",
         `${result.title} · ${result.version}${result.backupDir ? " · резервная копия создана" : ""}`,
         "success",
       );
     } catch (error) {
-      toast("Не удалось обновить аддон", errorText(error), "danger");
+      toast(reinstall ? "Не удалось переустановить аддон" : "Не удалось обновить аддон", errorText(error), "danger");
     } finally {
       state.installTasks.delete(key);
       render();
@@ -2028,7 +2412,8 @@
     const nextIndex = Math.min(Math.max(Number(index) || 0, 0), items.length - 1);
     state.lightbox = { index: nextIndex };
     state.details.activeShot = items[nextIndex].full;
-    render();
+    applyDetailsShotPreview();
+    syncLightboxRoot(true);
   }
 
   function moveLightbox(delta) {
@@ -2036,10 +2421,8 @@
     const items = galleryItems();
     if (!items.length) return;
     const current = Math.min(Math.max(Number(state.lightbox.index) || 0, 0), items.length - 1);
-    const nextIndex = (current + delta + items.length) % items.length;
-    state.lightbox = { index: nextIndex };
-    if (state.details) state.details.activeShot = items[nextIndex].full;
-    render();
+    state.lightbox = { index: (current + delta + items.length) % items.length };
+    refreshLightboxDom();
   }
 
   function selectLightbox(index) {
@@ -2048,13 +2431,12 @@
     const nextIndex = Number(index);
     if (!items.length || !Number.isFinite(nextIndex)) return;
     state.lightbox = { index: Math.min(Math.max(nextIndex, 0), items.length - 1) };
-    if (state.details) state.details.activeShot = items[state.lightbox.index].full;
-    render();
+    refreshLightboxDom();
   }
 
   function closeLightbox() {
     state.lightbox = null;
-    render();
+    syncLightboxRoot();
   }
 
   function installFromDetails() {
@@ -2232,7 +2614,64 @@
     persistSettings({ apiKey: key }, "Ключ сохранён");
   }
 
+  function onContextMenu(event) {
+    const target = event.target.closest?.("[data-context-kind]");
+    if (!target) return;
+    event.preventDefault();
+    const kind = target.dataset.contextKind;
+    if (kind === "installed") {
+      const key = target.dataset.addonKey || "";
+      const addon = state.addons.find((item) => item.key === key);
+      if (!addon) return;
+      openContextMenu(
+        {
+          kind: "installed",
+          key: addon.key,
+          title: addon.title,
+          installed: true,
+        },
+        event.clientX,
+        event.clientY,
+      );
+      return;
+    }
+    if (kind === "catalog") {
+      const modId = Number(target.dataset.modId);
+      const remote = state.catalog.results.find((item) => Number(item.id) === modId);
+      if (!remote) return;
+      const installed = installedForRemote(remote);
+      openContextMenu(
+        {
+          kind: "catalog",
+          modId,
+          title: remote.name || target.dataset.title || "",
+          installed: Boolean(installed),
+          key: installed?.key || null,
+          latestFile: remote.latestFile || null,
+        },
+        event.clientX,
+        event.clientY,
+      );
+    }
+  }
+
+  function onDoubleClick(event) {
+    if (event.target.closest("button, a, input, select, textarea, [data-action]")) return;
+    const target = event.target.closest?.("[data-context-kind]");
+    if (!target) return;
+    closeContextMenu();
+    if (target.dataset.contextKind === "installed") {
+      openInstalledDetails(target.dataset.addonKey || "");
+      return;
+    }
+    if (target.dataset.contextKind === "catalog") {
+      openCatalogDetails(Number(target.dataset.modId), target.dataset.title || "");
+    }
+  }
+
   function onClick(event) {
+    const inContextMenu = Boolean(event.target.closest("#context-menu-root"));
+    if (state.contextMenu && !inContextMenu) closeContextMenu();
     const actionEl = event.target.closest("[data-action]");
     if (!actionEl) return;
     const action = actionEl.dataset.action;
@@ -2240,6 +2679,7 @@
     if (
       (action === "details-backdrop" ||
         action === "install-backdrop" ||
+        action === "confirm-backdrop" ||
         action === "lightbox-backdrop") &&
       event.target !== actionEl
     ) {
@@ -2268,6 +2708,9 @@
       case "filter-installed":
         state.installedFilter = actionEl.dataset.filter || "all";
         render();
+        break;
+      case "set-view-mode":
+        setViewMode(actionEl.dataset.view || "", actionEl.dataset.mode || "");
         break;
       case "reset-installed-filter":
         state.installedQuery = "";
@@ -2299,6 +2742,37 @@
         installCatalog(id, actionEl.dataset.title || remote?.name || "", remote?.latestFile || null);
         break;
       }
+      case "context-details": {
+        const menu = state.contextMenu;
+        if (!menu) break;
+        if (menu.kind === "installed") openInstalledDetails(menu.key);
+        else openCatalogDetails(menu.modId, menu.title);
+        break;
+      }
+      case "context-reinstall": {
+        const menu = state.contextMenu;
+        if (menu?.key) updateAddon(menu.key, { reinstall: true });
+        break;
+      }
+      case "context-delete": {
+        const menu = state.contextMenu;
+        if (menu?.key) askRemoveAddon(menu.key);
+        break;
+      }
+      case "context-install": {
+        const menu = state.contextMenu;
+        if (menu?.modId) {
+          const remote = state.catalog.results.find((item) => Number(item.id) === Number(menu.modId));
+          installCatalog(menu.modId, menu.title || remote?.name || "", remote?.latestFile || null);
+        }
+        break;
+      }
+      case "confirm-cancel":
+        closeConfirm();
+        break;
+      case "confirm-remove-addon":
+        confirmRemoveAddon();
+        break;
       case "details-close":
         closeDetails();
         break;
@@ -2374,6 +2848,7 @@
       default:
         break;
     }
+    if (inContextMenu) closeContextMenu();
   }
 
   function onInput(event) {
@@ -2424,8 +2899,18 @@
 
   function onKeyDown(event) {
     if (event.key === "Escape") {
+      if (state.contextMenu) {
+        closeContextMenu();
+        event.preventDefault();
+        return;
+      }
       if (state.lightbox) {
         closeLightbox();
+        event.preventDefault();
+        return;
+      }
+      if (state.confirm) {
+        closeConfirm();
         event.preventDefault();
         return;
       }
@@ -2476,6 +2961,7 @@
   }
 
   function onScroll(event) {
+    if (state.contextMenu) closeContextMenu();
     if (event.target?.classList?.contains("details-body")) {
       state.detailsScroll = event.target.scrollTop;
     }
@@ -2497,11 +2983,15 @@
     }
 
     document.addEventListener("click", onClick);
+    document.addEventListener("contextmenu", onContextMenu);
+    document.addEventListener("dblclick", onDoubleClick);
     document.addEventListener("input", onInput);
     document.addEventListener("change", onChange);
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("scroll", onScroll, true);
     document.addEventListener("error", onImageError, true);
+    window.addEventListener("resize", closeContextMenu);
+    window.addEventListener("blur", closeContextMenu);
 
     registerEvents().then(loadBootstrap);
   }

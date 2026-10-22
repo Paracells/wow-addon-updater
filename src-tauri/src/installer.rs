@@ -10,7 +10,7 @@ use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{bail, Context as _, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::config;
@@ -77,9 +77,8 @@ impl Manifest {
         let key = primary_folder.to_ascii_lowercase();
         // Drop stale entries for the same project under another primary folder.
         if let Some(mod_id) = mod_id {
-            self.addons.retain(|existing_key, entry| {
-                existing_key == &key || entry.mod_id != Some(mod_id)
-            });
+            self.addons
+                .retain(|existing_key, entry| existing_key == &key || entry.mod_id != Some(mod_id));
         }
         self.addons.insert(
             key,
@@ -151,8 +150,10 @@ pub fn install_archive(
             .filter_map(|dir| folder_name(dir))
             .collect();
 
-        let new_set: std::collections::HashSet<String> =
-            folder_names.iter().map(|f| f.to_ascii_lowercase()).collect();
+        let new_set: std::collections::HashSet<String> = folder_names
+            .iter()
+            .map(|f| f.to_ascii_lowercase())
+            .collect();
         let stale: Vec<String> = old_folders
             .iter()
             .filter(|folder| !new_set.contains(&folder.to_ascii_lowercase()))
@@ -203,8 +204,9 @@ pub fn install_archive(
         for folder in &stale {
             let target = addons_dir.join(folder);
             if target.is_dir() {
-                fs::remove_dir_all(&target)
-                    .with_context(|| format!("не удалось удалить устаревшую папку {}", target.display()))?;
+                fs::remove_dir_all(&target).with_context(|| {
+                    format!("не удалось удалить устаревшую папку {}", target.display())
+                })?;
             }
         }
 
@@ -324,9 +326,28 @@ fn validate_file_name(name: &str) -> Result<()> {
     let stem = name.split('.').next().unwrap_or(name).to_ascii_uppercase();
     if matches!(
         stem.as_str(),
-        "CON" | "PRN" | "AUX" | "NUL"
-            | "COM1" | "COM2" | "COM3" | "COM4" | "COM5" | "COM6" | "COM7" | "COM8" | "COM9"
-            | "LPT1" | "LPT2" | "LPT3" | "LPT4" | "LPT5" | "LPT6" | "LPT7" | "LPT8" | "LPT9"
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
     ) {
         bail!("зарезервированное имя файла: {name:?}");
     }
@@ -432,7 +453,8 @@ fn choose_primary_dir(
 }
 
 fn folder_name(path: &Path) -> Option<String> {
-    path.file_name().map(|name| name.to_string_lossy().to_string())
+    path.file_name()
+        .map(|name| name.to_string_lossy().to_string())
 }
 
 pub fn sanitize_folder(name: &str) -> Option<String> {
@@ -471,6 +493,65 @@ pub fn copy_dir_all(source: &Path, destination: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Return true when `folder` is a plain top-level directory name inside AddOns.
+pub fn is_safe_addon_folder(folder: &str) -> bool {
+    if folder.trim().is_empty() || folder == "." || folder == ".." {
+        return false;
+    }
+    let path = Path::new(folder);
+    let mut components = path.components();
+    matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none()
+}
+
+/// Remove addon folders, optionally copying them into the backups directory first.
+pub fn remove_addon_folders(
+    addons_dir: &Path,
+    folders: &[String],
+    keep_backups: bool,
+) -> Result<(Option<PathBuf>, usize)> {
+    let mut existing = Vec::new();
+    for folder in folders {
+        if !is_safe_addon_folder(folder) {
+            bail!("Некорректное имя папки аддона: {folder:?}");
+        }
+        let path = addons_dir.join(folder);
+        let Ok(metadata) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if metadata.file_type().is_symlink() {
+            bail!(
+                "Папка аддона является символической ссылкой: {}",
+                path.display()
+            );
+        }
+        if metadata.is_dir() {
+            existing.push((folder.clone(), path));
+        }
+    }
+    if existing.is_empty() {
+        bail!("Папки аддона не найдены в AddOns.");
+    }
+
+    let backup_dir = if keep_backups {
+        let backup = unique_dir(config::backups_dir(), "removed");
+        fs::create_dir_all(&backup)
+            .with_context(|| format!("Не удалось создать {}", backup.display()))?;
+        for (folder, source) in &existing {
+            copy_dir_all(source, &backup.join(folder))?;
+        }
+        Some(backup)
+    } else {
+        None
+    };
+
+    for (_, path) in &existing {
+        fs::remove_dir_all(path)
+            .with_context(|| format!("Не удалось удалить {}", path.display()))?;
+    }
+
+    Ok((backup_dir, existing.len()))
+}
+
 fn unique_dir(parent: PathBuf, prefix: &str) -> PathBuf {
     let _ = fs::create_dir_all(&parent);
     let base = format!("{prefix}-{}", epoch_seconds());
@@ -504,6 +585,33 @@ mod tests {
         let dirs = find_addon_dirs(temp.path(), "MyAddon").unwrap();
         assert_eq!(dirs.len(), 1);
         assert!(dirs[0].ends_with("MyAddon"));
+    }
+
+    #[test]
+    fn removes_addon_folders_without_backup() {
+        let temp = tempfile::tempdir().unwrap();
+        let addons = temp.path().join("AddOns");
+        let folder = addons.join("MyAddon");
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(folder.join("MyAddon.toc"), "## Title: MyAddon").unwrap();
+
+        let (backup, removed) =
+            remove_addon_folders(&addons, &["MyAddon".to_string()], false).unwrap();
+        assert_eq!(removed, 1);
+        assert!(backup.is_none());
+        assert!(!folder.exists());
+    }
+
+    #[test]
+    fn accepts_only_plain_addon_folder_names() {
+        assert!(is_safe_addon_folder("DBM-Core"));
+        assert!(is_safe_addon_folder("Details_Compare2"));
+        assert!(!is_safe_addon_folder(""));
+        assert!(!is_safe_addon_folder("."));
+        assert!(!is_safe_addon_folder(".."));
+        assert!(!is_safe_addon_folder("../DBM-Core"));
+        assert!(!is_safe_addon_folder("nested/DBM-Core"));
+        assert!(!is_safe_addon_folder("C:\\Addons\\DBM-Core"));
     }
 
     #[test]

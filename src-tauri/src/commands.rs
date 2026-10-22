@@ -311,6 +311,15 @@ pub struct InstallResultView {
 
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct RemoveResult {
+    pub title: String,
+    pub removed: usize,
+    pub backup_dir: Option<String>,
+    pub addons: Vec<AddonView>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct BatchResult {
     pub total: usize,
     pub succeeded: usize,
@@ -435,13 +444,13 @@ fn emit_check_failed(app: &AppHandle, key: &str, title: &str, error: impl ToStri
 #[tauri::command]
 pub async fn bootstrap(state: State<'_, AppState>) -> Result<Bootstrap, String> {
     let configured = state.config.lock().unwrap().wow_path.clone();
-    let installs = tauri::async_runtime::spawn_blocking(move || {
-        wow::detect_installs(configured.as_deref())
-    })
-    .await
-    .map_err(|error| format!("Не удалось просканировать диск: {error}"))?;
+    let installs =
+        tauri::async_runtime::spawn_blocking(move || wow::detect_installs(configured.as_deref()))
+            .await
+            .map_err(|error| format!("Не удалось просканировать диск: {error}"))?;
 
-    let selected = choose_install_index(&installs, state.config.lock().unwrap().wow_path.as_deref());
+    let selected =
+        choose_install_index(&installs, state.config.lock().unwrap().wow_path.as_deref());
     {
         *state.installs.lock().unwrap() = installs.clone();
         *state.selected.lock().unwrap() = selected;
@@ -527,7 +536,9 @@ pub async fn add_install_path(
 
     let selected = installs
         .iter()
-        .position(|install| normalize_path(&install.flavor_dir.display().to_string()) == first_flavor)
+        .position(|install| {
+            normalize_path(&install.flavor_dir.display().to_string()) == first_flavor
+        })
         .unwrap_or(0);
     *state.installs.lock().unwrap() = installs.clone();
     *state.selected.lock().unwrap() = Some(selected);
@@ -611,7 +622,10 @@ pub async fn check_updates(
 ) -> Result<CheckSummary, String> {
     let install = current_install(state.inner())?;
     let addons = scan_installed(install.clone()).await?;
-    let cf = CurseForge::new(state.http.clone(), api_settings(state.inner(), install.version));
+    let cf = CurseForge::new(
+        state.http.clone(),
+        api_settings(state.inner(), install.version),
+    );
 
     let total = addons.len();
     let mut failed = 0;
@@ -660,7 +674,10 @@ pub async fn check_addon(
         .find(|addon| addon.key.eq_ignore_ascii_case(&key))
         .cloned()
         .ok_or_else(|| "Аддон не найден. Обновите список установленных.".to_string())?;
-    let cf = CurseForge::new(state.http.clone(), api_settings(state.inner(), install.version));
+    let cf = CurseForge::new(
+        state.http.clone(),
+        api_settings(state.inner(), install.version),
+    );
     let result = cf.check_addon(&addon).await;
     let view = CheckView::from_result(&result);
     let _ = app.emit("check-result", &view);
@@ -681,7 +698,12 @@ pub async fn search_addons(
     };
     let cf = CurseForge::new(state.http.clone(), api_settings_optional(state.inner()));
     let results = cf
-        .search(&query, sort, page.saturating_mul(SEARCH_PAGE_SIZE), SEARCH_PAGE_SIZE)
+        .search(
+            &query,
+            sort,
+            page.saturating_mul(SEARCH_PAGE_SIZE),
+            SEARCH_PAGE_SIZE,
+        )
         .await
         .map_err(|error| error.to_string())?;
     Ok(SearchView {
@@ -717,7 +739,10 @@ pub async fn installed_details(
         .cloned()
         .ok_or_else(|| "Аддон не найден. Обновите список установленных.".to_string())?;
 
-    let cf = CurseForge::new(state.http.clone(), api_settings(state.inner(), install.version));
+    let cf = CurseForge::new(
+        state.http.clone(),
+        api_settings(state.inner(), install.version),
+    );
     let mod_id = match mod_id {
         Some(mod_id) => mod_id,
         None => cf
@@ -821,7 +846,10 @@ pub async fn update_addon(
         .cloned()
         .ok_or_else(|| "Аддон не найден. Обновите список установленных.".to_string())?;
 
-    let cf = CurseForge::new(state.http.clone(), api_settings(state.inner(), install.version.clone()));
+    let cf = CurseForge::new(
+        state.http.clone(),
+        api_settings(state.inner(), install.version.clone()),
+    );
     let mod_id = match addon.curse_id {
         Some(mod_id) => mod_id,
         None => cf
@@ -858,6 +886,60 @@ pub async fn update_addon(
 }
 
 #[tauri::command]
+pub async fn remove_addon(state: State<'_, AppState>, key: String) -> Result<RemoveResult, String> {
+    let install = current_install(state.inner())?;
+    let _guard = state
+        .install_lock
+        .try_lock()
+        .map_err(|_| "Установка уже выполняется. Дождитесь её окончания.".to_string())?;
+
+    let installed = scan_installed(install.clone()).await?;
+    let addon = installed
+        .iter()
+        .find(|addon| addon.key.eq_ignore_ascii_case(&key))
+        .cloned()
+        .ok_or_else(|| "Аддон не найден. Обновите список установленных.".to_string())?;
+
+    let keep_backups = state.config.lock().unwrap().keep_backups;
+    let addons_dir = install.addons_dir.clone();
+    let folders = addon.folders.clone();
+    let (backup_dir, removed) = tauri::async_runtime::spawn_blocking(move || {
+        installer::remove_addon_folders(&addons_dir, &folders, keep_backups)
+    })
+    .await
+    .map_err(|error| format!("Не удалось выполнить удаление: {error}"))?
+    .map_err(|error| error.to_string())?;
+
+    let removed_folders: Vec<String> = addon
+        .folders
+        .iter()
+        .map(|folder| folder.to_ascii_lowercase())
+        .collect();
+    let mut manifest = Manifest::load();
+    manifest.addons.retain(|folder_key, entry| {
+        !removed_folders.iter().any(|removed| {
+            folder_key.eq_ignore_ascii_case(removed)
+                || entry.primary_folder.eq_ignore_ascii_case(removed)
+                || entry
+                    .folders
+                    .iter()
+                    .any(|folder| folder.eq_ignore_ascii_case(removed))
+        })
+    });
+    if let Err(error) = manifest.save() {
+        log::warn!("failed to update manifest after removing addon: {error}");
+    }
+
+    let addons = scan_views(install).await?;
+    Ok(RemoveResult {
+        title: addon.title,
+        removed,
+        backup_dir: backup_dir.map(|path| path.display().to_string()),
+        addons,
+    })
+}
+
+#[tauri::command]
 pub async fn update_addons(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -870,7 +952,10 @@ pub async fn update_addons(
         .map_err(|_| "Установка уже выполняется. Дождитесь её окончания.".to_string())?;
 
     let installed = scan_installed(install.clone()).await?;
-    let cf = CurseForge::new(state.http.clone(), api_settings(state.inner(), install.version.clone()));
+    let cf = CurseForge::new(
+        state.http.clone(),
+        api_settings(state.inner(), install.version.clone()),
+    );
 
     let total = keys.len();
     let mut succeeded = 0;
@@ -1007,7 +1092,9 @@ async fn install_one_inner(
         state.http.clone(),
         api_settings(state, install.version.clone()),
     );
-    let mod_id = target.mod_id.ok_or_else(|| "Не указан проект CurseForge.".to_string())?;
+    let mod_id = target
+        .mod_id
+        .ok_or_else(|| "Не указан проект CurseForge.".to_string())?;
 
     let _ = app.emit(
         "install-progress",

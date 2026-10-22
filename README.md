@@ -21,8 +21,13 @@ required to use the app.
 - **Update checking** — picks the newest stable file for the local interface version,
   with a same-major/minor fallback when the exact patch is not published.
 - **Catalog search** - popular, recently updated and alphabetical sorting, paging,
-  installed badges, descriptions, full-screen screenshot carousel and a highlighted
-  list of supported game versions (your installed version is marked in gold).
+  installed badges, descriptions, a full-screen screenshot carousel and a list of
+  supported game versions where your installed version is highlighted in green.
+- **Grid and list views** — both the installed addon list and the CurseForge catalog
+  can be switched between compact rows and cards; the preference is remembered.
+- **Context actions** — right-click an addon to install, reinstall, open details or
+  remove it. Double-clicking an installed addon or catalog item opens its details.
+  Removal asks for confirmation and keeps a backup when backups are enabled.
 - **Safe install** — validates ZIP paths, rejects traversal entries, downloads to a
   local staging area, creates a backup of replaced folders, and only then swaps files
   into `Interface/AddOns`.
